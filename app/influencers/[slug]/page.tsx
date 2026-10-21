@@ -2,11 +2,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { getPublicInfluencer } from "@/app/actions/influencer";
+import { PlatformChip } from "@/components/platforms/platform-chip";
 import { PublicChrome } from "@/components/public-chrome";
 import { AvatarCircle } from "@/components/ui/avatar-circle";
 import { Badge, Card, ListRow } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getSession } from "@/lib/auth/session";
+import { RATE_TYPE_LABEL, ratePlatformLabel } from "@/lib/platforms/guides";
+import { PLATFORM_LABEL, SOCIAL_PLATFORMS, profileUrl } from "@/lib/social/platforms";
 import { formatMoney } from "@/lib/utils";
 
 export default async function PublicInfluencerPage({
@@ -37,12 +40,35 @@ export default async function PublicInfluencerPage({
             </h1>
             <p className="mt-2 text-lg text-muted">{profile.headline}</p>
             <p className="mt-1 text-sm text-muted-light">{profile.location}</p>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {SOCIAL_PLATFORMS.filter((platform) => profile.socials?.[platform]).map((platform) => (
+                <PlatformChip key={platform} platform={platform} />
+              ))}
+            </div>
           </div>
         </div>
 
         <Card className="mt-8">
           <h2 className="font-display text-xl">About</h2>
           <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-muted">{profile.bio}</p>
+          <ul className="mt-4 flex flex-wrap gap-2">
+            {SOCIAL_PLATFORMS.map((platform) => {
+              const value = profile.socials[platform];
+              if (!value) return null;
+              return (
+                <li key={platform}>
+                  <a
+                    href={profileUrl(platform, value)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm font-medium text-gold-deep hover:underline"
+                  >
+                    {PLATFORM_LABEL[platform]}
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
         </Card>
 
         <div className="mt-8">
@@ -56,8 +82,8 @@ export default async function PublicInfluencerPage({
                   <ListRow>
                     <div>
                       <p className="font-medium">{r.title}</p>
-                      <p className="text-sm capitalize text-muted">
-                        {r.type} · {r.platform}
+                      <p className="text-sm text-muted">
+                        {RATE_TYPE_LABEL[r.type] ?? r.type} · {ratePlatformLabel(r.platform)}
                       </p>
                     </div>
                     <p className="font-display text-lg">{formatMoney(r.priceCents)}</p>

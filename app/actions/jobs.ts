@@ -3,8 +3,25 @@
 import { revalidatePath } from "next/cache";
 
 import { newId, nowIso, readStore, updateStore } from "@/lib/db/store";
+import type { ViewSnapshot } from "@/lib/db/types";
 import { fetchVideoViewsFromApify, isApifyConfigured } from "@/lib/social/apify";
-import { applyWalletDelta } from "@/lib/wallet/ledger";
+import { creditSubmissionEarnings } from "@/lib/campaigns/earnings";
+
+function confirmedSnapshot(submissionId: string, views: number, at: string, source: ViewSnapshot["source"]): ViewSnapshot {
+  return {
+    id: newId(),
+    submissionId,
+    views,
+    likes: null,
+    comments: null,
+    note: null,
+    screenshotPath: null,
+    recordedAt: at,
+    checkedBy: null,
+    source,
+    status: "confirmed",
+  };
+}
 
 /**
  * Phase 7 automation — callable via /api/jobs/poll-views or cron.
@@ -61,7 +78,7 @@ export async function pollSubmissionViewsJob() {
         if (!sub) continue;
         // Re-check inside the transaction; skip regressions per-record.
         if (views <= sub.views) continue;
-        s.viewSnapshots.push({ id: newId(), submissionId: id, views, recordedAt: at });
+        s.viewSnapshots.push(confirmedSnapshot(id, views, at, "job"));
         sub.views = views;
         sub.updatedAt = at;
       }
@@ -90,35 +107,7 @@ export async function recalculateEarningsJob() {
     let delta = 0;
     try {
       await updateStore((s) => {
-        const sub = s.submissions.find((x) => x.id === id);
-        if (!sub || sub.status !== "approved") return;
-        const camp = s.campaigns.find((c) => c.id === sub.campaignId);
-        if (!camp) return;
-
-        // CPM math: earnings = views / 1000 * cpm, capped per submission and remaining budget
-        const raw = Math.floor((sub.views / 1000) * camp.cpmCents);
-        const cappedByVideo = Math.min(raw, camp.maxPayoutPerSubmissionCents);
-        const remainingBudget = camp.budgetTotalCents - camp.budgetSpentCents;
-        const targetEarnings = Math.min(cappedByVideo, remainingBudget + sub.earningsCents);
-        const d = targetEarnings - sub.earningsCents;
-        if (d <= 0) return;
-
-        applyWalletDelta(s, {
-          userId: sub.clipperId,
-          availableDelta: d,
-          type: "credit",
-          reason: `Campaign earnings · ${camp.title}`,
-          referenceType: "campaign_earning",
-          referenceId: sub.id,
-        });
-        sub.earningsCents = targetEarnings;
-        sub.updatedAt = nowIso();
-        camp.budgetSpentCents += d;
-        if (camp.budgetSpentCents >= camp.budgetTotalCents) {
-          camp.status = "completed";
-        }
-        camp.updatedAt = nowIso();
-        delta = d;
+        delta = creditSubmissionEarnings(s, id);
       });
     } catch {
       // One bad submission (e.g. wallet invariant) skips; rest still credit.
@@ -144,4 +133,16 @@ export async function budgetAlertsJob() {
       spentRatio: c.budgetSpentCents / c.budgetTotalCents,
     }));
   return { alerts };
+}
+
+/** Manual view credits already happen when an admin saves a count. This job repeats that math. */
+export async function settleRewardsJob(asOf?: string) {
+  void asOf;
+  const result = await recalculateEarningsJob();
+  return {
+    reservedCents: 0,
+    releasedCents: result.creditedCents,
+    clawedCents: 0,
+    creditedCents: result.creditedCents,
+  };
 }

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { listBrandCampaigns } from "@/app/actions/campaigns";
 import { listBrandBookings } from "@/app/actions/bookings";
 import { getMyWallet } from "@/app/actions/wallet";
+import { PlatformChip } from "@/components/platforms/platform-chip";
 import { Button } from "@/components/ui/button";
 import {
   EmptyState,
@@ -82,6 +83,11 @@ export default async function BrandDashboardPage() {
                       <p className="text-xs text-muted">
                         {c.status} · {formatMoney(c.budgetSpentCents)} / {formatMoney(c.budgetTotalCents)}
                       </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {c.platforms.map((platform) => (
+                          <PlatformChip key={platform} platform={platform} />
+                        ))}
+                      </div>
                     </div>
                     <span className="shrink-0 text-xs capitalize text-muted">{c.type}</span>
                   </Link>
@@ -92,15 +98,15 @@ export default async function BrandDashboardPage() {
         </section>
 
         <section>
-          <SectionHeader title="Bookings" href="/influencers" linkLabel="Browse influencers →" />
+          <SectionHeader title="Bookings" href="/dashboard/brand/creators" linkLabel="Find creators" />
           {bookings.length === 0 ? (
             <EmptyState
               title="No bookings yet"
               description="Hire influencers at their listed rates for trusted sponsored posts."
               action={
-                <Link href="/influencers">
+                <Link href="/dashboard/brand/creators">
                   <Button size="sm" variant="secondary">
-                    Browse influencers
+                    Find creators
                   </Button>
                 </Link>
               }

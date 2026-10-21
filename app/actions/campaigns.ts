@@ -6,6 +6,7 @@ import { getSession, requireSession } from "@/lib/auth/session";
 import { isCampaignFunded } from "@/lib/campaigns/fund";
 import { newId, nowIso, readStore, updateStore } from "@/lib/db/store";
 import type { Campaign } from "@/lib/db/types";
+import { hydrateCampaign } from "@/lib/rewards/content-rewards";
 import {
   campaignCreateSchema,
   campaignUpdateSchema,
@@ -42,7 +43,7 @@ export async function createCampaignAction(raw: unknown) {
   if (!parsed.success) return { ok: false as const, error: "Invalid campaign details." };
 
   const now = nowIso();
-  const campaign: Campaign = {
+  const campaign = hydrateCampaign({
     id: newId(),
     brandId: session.id,
     title: parsed.data.title,
@@ -56,10 +57,23 @@ export async function createCampaignAction(raw: unknown) {
     maxPayoutPerSubmissionCents: parsed.data.maxPayoutPerSubmissionCents,
     platforms: parsed.data.platforms,
     requirements: parsed.data.requirements ?? "",
+    rules: "",
+    assets: [],
+    minPayoutCents: 0,
+    minViews: 0,
+    payModel: "cpm",
+    countries: ["NA"],
+    feeReservedCents: 0,
+    feeChargedCents: 0,
+    feeRefundedCents: 0,
+    unspentReturnedCents: 0,
+    poolSettledAt: null,
+    closedAt: null,
+    startDate: null,
     endDate: parsed.data.endDate ?? null,
     createdAt: now,
     updatedAt: now,
-  };
+  });
 
   // Atomic: create + fund in one write so a crash can't leave an
   // unfunded "active" campaign or orphan a wallet debit.
@@ -70,7 +84,7 @@ export async function createCampaignAction(raw: unknown) {
         const wallet = s.wallets.find((w) => w.userId === session.id);
         if (!wallet || wallet.availableCents < campaign.budgetTotalCents) {
           throw new Error(
-            `Insufficient wallet balance. You need ${formatMoney(campaign.budgetTotalCents)} available — record a deposit first.`,
+            `Insufficient wallet balance. You need ${formatMoney(campaign.budgetTotalCents)} available. Submit an EFT deposit and wait for admin confirmation, then publish.`,
           );
         }
         applyWalletDelta(s, {
@@ -134,7 +148,7 @@ export async function setCampaignStatusAction(id: string, status: CampaignStatus
         const wallet = s.wallets.find((w) => w.userId === c.brandId);
         if (!wallet || wallet.availableCents < c.budgetTotalCents) {
           throw new Error(
-            `Insufficient wallet balance. You need ${formatMoney(c.budgetTotalCents)} available — record a deposit first.`,
+            `Insufficient wallet balance. You need ${formatMoney(c.budgetTotalCents)} available. Submit an EFT deposit and wait for admin confirmation, then publish.`,
           );
         }
         applyWalletDelta(s, {
@@ -210,7 +224,7 @@ export async function deleteCampaignAction(id: string) {
             userId: campaign.brandId,
             availableDelta: remaining,
             type: "credit",
-            reason: "Campaign deleted — unused budget returned",
+            reason: "Campaign deleted. Unused budget returned",
             referenceType: "campaign_fund",
             referenceId: campaign.id,
           });
