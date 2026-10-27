@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import { getCampaign, listBrandCampaigns } from "@/app/actions/campaigns";
-import { listBrandSubmissions } from "@/app/actions/submissions";
-import { BrandSubmissionQueue } from "@/components/dashboard/brand-submission-queue";
+import { getCampaign } from "@/app/actions/campaigns";
+import { listCampaignSubmissions } from "@/app/actions/submissions";
+import { RecordViewsForm } from "@/components/forms/record-views-form";
+import { SubmissionReviewForm } from "@/components/forms/submission-review-form";
+import { Badge, EmptyState, PageHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/card";
 import { getSession } from "@/lib/auth/session";
@@ -49,8 +51,8 @@ export default async function CampaignSubmissionsPage({
   return (
     <div className="dash-stack">
       <PageHeader
-        title="Clips"
-        description={`${campaign.title} · ${formatMoney(paidOnCampaign)} paid to creators`}
+        title="Submission queue"
+        description={`Review clips for ${campaign.title}. Enter the view count you checked, then approve. Earnings use the campaign CPM.`}
         action={
           <Link href={`/dashboard/brand/campaigns/${id}`}>
             <Button size="sm" variant="secondary">
@@ -60,14 +62,64 @@ export default async function CampaignSubmissionsPage({
         }
       />
 
-      <BrandSubmissionQueue
-        submissions={allSubmissions}
-        campaigns={campaigns}
-        profiles={store.profiles}
-        filters={filters}
-        action={`/dashboard/brand/campaigns/${id}/submissions`}
-        lockCampaignId={id}
-      />
+      {submissions.length === 0 ? (
+        <EmptyState
+          title="No submissions"
+          description="Clippers haven't submitted clips yet."
+        />
+      ) : (
+        <ul className="space-y-2.5">
+          {submissions.map((s) => {
+            const clipper = store.profiles.find((p) => p.id === s.clipperId);
+            return (
+              <li key={s.id} className="list-row items-start">
+                <div className="w-full space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{clipper?.displayName ?? "Creator"}</p>
+                      <a
+                        href={s.postUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 block break-all text-sm text-gold-deep hover:underline"
+                      >
+                        {s.postUrl}
+                      </a>
+                      <p className="mt-1 text-xs text-muted">
+                        {s.platform} · {formatNumber(s.views)} views · {formatMoney(s.earningsCents)}{" "}
+                        earned
+                      </p>
+                    </div>
+                    <Badge
+                      tone={
+                        s.status === "approved"
+                          ? "success"
+                          : s.status === "rejected"
+                            ? "danger"
+                            : s.status === "flagged"
+                              ? "gold"
+                              : "muted"
+                      }
+                    >
+                      {s.status}
+                    </Badge>
+                  </div>
+                  {s.status === "pending" ? (
+                    <div className="border-t border-border/80 pt-3">
+                      <SubmissionReviewForm submissionId={s.id} />
+                    </div>
+                  ) : null}
+                  {s.status === "approved" ? (
+                    <div className="border-t border-border/80 pt-3">
+                      <RecordViewsForm submissionId={s.id} currentViews={s.views} />
+                    </div>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

@@ -4,12 +4,14 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { createCampaignAction, updateCampaignAction } from "@/app/actions/campaigns";
+import { PostingGuide } from "@/components/platforms/posting-guide";
 import { Button } from "@/components/ui/button";
 import { FieldError, Input, Label, Select, Textarea } from "@/components/ui/input";
 import type { Campaign } from "@/lib/db/types";
+import { PLATFORM_LABEL, SOCIAL_PLATFORMS } from "@/lib/social/platforms";
 import type { SocialPlatform } from "@/types/enums";
 
-const PLATFORMS: SocialPlatform[] = ["tiktok", "youtube", "instagram", "x"];
+const PLATFORMS: SocialPlatform[] = [...SOCIAL_PLATFORMS];
 
 function nadToCents(value: string) {
   const n = parseFloat(value);
@@ -21,11 +23,14 @@ type Props = {
   mode: "create" | "edit";
   campaign?: Campaign;
   walletAvailableCents?: number;
+  budgetLocked?: boolean;
+  feeBps?: number;
 };
 
 export function CampaignForm({ mode, campaign, walletAvailableCents }: Props) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [intent, setIntent] = useState<"publish" | "draft" | null>(null);
   const [pending, startTransition] = useTransition();
   const [platforms, setPlatforms] = useState<SocialPlatform[]>(campaign?.platforms ?? []);
 
@@ -43,6 +48,9 @@ export function CampaignForm({ mode, campaign, walletAvailableCents }: Props) {
         const fd = new FormData(e.currentTarget);
         setError(null);
 
+        const submitter = (e.nativeEvent as SubmitEvent).submitter;
+        const publish = submitter instanceof HTMLButtonElement && submitter.value === "publish";
+        setIntent(publish ? "publish" : "draft");
         const payload = {
           title: String(fd.get("title") || ""),
           description: String(fd.get("description") || ""),
@@ -54,7 +62,7 @@ export function CampaignForm({ mode, campaign, walletAvailableCents }: Props) {
           platforms,
           requirements: String(fd.get("requirements") || ""),
           endDate: String(fd.get("endDate") || "") || null,
-          status: mode === "create" ? (String(fd.get("status") || "draft") as Campaign["status"]) : undefined,
+          status: mode === "create" ? (publish ? "active" : "draft") : undefined,
         };
 
         if (
@@ -63,7 +71,9 @@ export function CampaignForm({ mode, campaign, walletAvailableCents }: Props) {
           walletAvailableCents !== undefined &&
           payload.budgetTotalCents > walletAvailableCents
         ) {
-          setError("Insufficient wallet balance for this budget. Record a deposit first.");
+          setError(
+            "This campaign stays hidden until the wallet can cover the full budget. Submit an EFT deposit and wait for admin confirmation, then publish.",
+          );
           return;
         }
 
@@ -160,10 +170,15 @@ export function CampaignForm({ mode, campaign, walletAvailableCents }: Props) {
                 checked={platforms.includes(p)}
                 onChange={() => togglePlatform(p)}
               />
-              {p}
+              {PLATFORM_LABEL[p]}
             </label>
           ))}
         </div>
+        {platforms.length > 0 ? (
+          <div className="mt-4">
+            <PostingGuide platforms={platforms} />
+          </div>
+        ) : null}
       </div>
       <div>
         <Label htmlFor="requirements">Requirements</Label>
@@ -180,19 +195,27 @@ export function CampaignForm({ mode, campaign, walletAvailableCents }: Props) {
           />
         </div>
         {mode === "create" ? (
-          <div>
-            <Label htmlFor="status">Initial status</Label>
-            <Select id="status" name="status" defaultValue="draft">
-              <option value="draft">Draft — save, fund later</option>
-              <option value="active">Active — fund from wallet now</option>
-            </Select>
-          </div>
+          <p className="text-sm text-muted sm:col-span-2">
+            Clippers only see a published campaign. Publishing moves the full budget from your
+            wallet. A draft stays hidden. There is no admin approval step.
+          </p>
         ) : null}
       </div>
       <FieldError>{error}</FieldError>
-      <div className="flex gap-3">
-        <Button type="submit" disabled={pending || platforms.length === 0}>
-          {pending ? "Saving…" : mode === "create" ? "Create campaign" : "Save changes"}
+      <div className="flex flex-wrap gap-3">
+        {mode === "create" ? (
+          <Button type="submit" name="intent" value="publish" disabled={pending || platforms.length === 0}>
+            {pending && intent === "publish" ? "Publishing…" : "Publish to clippers"}
+          </Button>
+        ) : null}
+        <Button
+          type="submit"
+          name="intent"
+          value="draft"
+          variant={mode === "create" ? "secondary" : "primary"}
+          disabled={pending || platforms.length === 0}
+        >
+          {pending && intent !== "publish" ? "Saving…" : mode === "create" ? "Save as draft" : "Save changes"}
         </Button>
         <Button
           type="button"

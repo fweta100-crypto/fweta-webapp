@@ -3,9 +3,36 @@
 import { revalidatePath } from "next/cache";
 
 import { requireSession } from "@/lib/auth/session";
+import { creditSubmissionEarnings } from "@/lib/campaigns/earnings";
 import { newId, nowIso, readStore, updateStore } from "@/lib/db/store";
-import type { Submission } from "@/lib/db/types";
-import { submissionReviewSchema, submissionSchema } from "@/lib/validations/submission";
+import type { ViewSnapshot } from "@/lib/db/types";
+import { hydrateSubmission } from "@/lib/rewards/content-rewards";
+import { recordAppeal } from "@/lib/rewards/fraud";
+import { bioContainsCode, localBioConfirmAllowed, observeBio } from "@/lib/social/observe";
+import { fraudAppealSchema, linkAccountSchema, manualViewsSchema, submissionReviewSchema, submissionSchema, verifyAccountSchema } from "@/lib/validations/submission";
+
+function confirmedSnapshot(submissionId: string, views: number, at: string, source: ViewSnapshot["source"]): ViewSnapshot {
+  return {
+    id: newId(),
+    submissionId,
+    views,
+    likes: null,
+    comments: null,
+    note: null,
+    screenshotPath: null,
+    recordedAt: at,
+    checkedBy: null,
+    source,
+    status: "confirmed",
+  };
+}
+
+function makeBioCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "FWETA-";
+  for (let i = 0; i < 6; i += 1) code += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return code;
+}
 
 function normalizePostUrl(url: string): string {
   try {
@@ -63,7 +90,7 @@ export async function submitClipAction(raw: unknown) {
   }
 
   const now = nowIso();
-  const submission: Submission = {
+  const submission = hydrateSubmission({
     id: newId(),
     campaignId: parsed.data.campaignId,
     clipperId: session.id,
@@ -72,10 +99,28 @@ export async function submitClipAction(raw: unknown) {
     status: "pending",
     reviewNote: null,
     views: 0,
+    baselineViews: null,
+    payableViews: 0,
+    reservedCents: 0,
+    releasedCents: 0,
     earningsCents: 0,
+    approvedAt: null,
+    earningUntil: null,
+    holdUntil: null,
+    releasedAt: null,
+    payoutState: "none",
+    nextPollAt: null,
+    lastPolledAt: null,
+    postLive: null,
+    likes: null,
+    comments: null,
+    fraudScore: 0,
+    fraudState: "clear",
+    fraudReasons: [],
+    appealUsed: false,
     createdAt: now,
     updatedAt: now,
-  };
+  });
 
   try {
     await updateStore((s) => {
@@ -121,12 +166,20 @@ export async function reviewSubmissionAction(id: string, raw: unknown) {
     sub.status = parsed.data.status;
     sub.reviewNote = parsed.data.reviewNote ?? null;
     sub.updatedAt = nowIso();
+    if (parsed.data.status === "approved" && parsed.data.views != null) {
+      sub.views = parsed.data.views;
+      s.viewSnapshots.push(confirmedSnapshot(sub.id, parsed.data.views, nowIso(), "admin"));
+      creditSubmissionEarnings(s, sub.id);
+    }
     if (parsed.data.status === "flagged") {
       s.fraudFlags.push({
         id: newId(),
         submissionId: id,
         reason: parsed.data.reviewNote || "Flagged by brand",
         status: "open",
+        kind: "manual",
+        score: null,
+        appealNote: null,
         createdAt: nowIso(),
         resolvedAt: null,
       });
@@ -138,6 +191,43 @@ export async function reviewSubmissionAction(id: string, raw: unknown) {
   revalidatePath("/dashboard/brand");
   revalidateClipperSurfaces(campaign.id);
   return { ok: true as const };
+}
+
+export async function recordCheckedViewsAction(raw: unknown) {
+  const session = await requireSession();
+  const parsed = manualViewsSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false as const, error: "Enter a whole view count." };
+
+  const store = await readStore();
+  const submission = store.submissions.find((item) => item.id === parsed.data.submissionId);
+  if (!submission) return { ok: false as const, error: "Not found." };
+  const campaign = store.campaigns.find((item) => item.id === submission.campaignId);
+  if (!campaign) return { ok: false as const, error: "Campaign missing." };
+  if (campaign.brandId !== session.id && !session.roles.includes("admin")) {
+    return { ok: false as const, error: "Not allowed." };
+  }
+  if (submission.status !== "approved") {
+    return { ok: false as const, error: "Approve the clip before recording views." };
+  }
+
+  let credited = 0;
+  try {
+    await updateStore((s) => {
+      const sub = s.submissions.find((item) => item.id === parsed.data.submissionId);
+      if (!sub || sub.status !== "approved") throw new Error("Approve the clip before recording views.");
+      sub.views = parsed.data.views;
+      sub.updatedAt = nowIso();
+      s.viewSnapshots.push(confirmedSnapshot(sub.id, parsed.data.views, nowIso(), "admin"));
+      credited = creditSubmissionEarnings(s, sub.id);
+    });
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : "Could not record views." };
+  }
+
+  revalidateClipperSurfaces(campaign.id);
+  revalidatePath("/dashboard/clipper/earnings");
+  revalidatePath("/leaderboard");
+  return { ok: true as const, creditedCents: credited };
 }
 
 export async function listClipperSubmissions() {
@@ -159,16 +249,106 @@ export async function listCampaignSubmissions(campaignId: string) {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export async function listBrandSubmissions() {
+export async function appealClipAction(submissionId: string, raw: unknown) {
   const session = await requireSession();
-  if (!session.roles.includes("brand") && !session.roles.includes("admin")) return [];
+  const parsed = fraudAppealSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false as const, error: parsed.error.issues[0]?.message ?? "Enter a short note." };
   const store = await readStore();
-  const campaignIds = new Set(
-    store.campaigns
-      .filter((c) => (session.roles.includes("admin") ? true : c.brandId === session.id))
-      .map((c) => c.id),
-  );
-  return store.submissions
-    .filter((s) => campaignIds.has(s.campaignId))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const submission = store.submissions.find((s) => s.id === submissionId && s.clipperId === session.id);
+  if (!submission) return { ok: false as const, error: "Not found." };
+  try {
+    await updateStore((s) => {
+      const sub = s.submissions.find((item) => item.id === submissionId && item.clipperId === session.id);
+      if (!sub) throw new Error("Not found.");
+      recordAppeal(s, sub.id, parsed.data.note, nowIso());
+    });
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : "Could not send the appeal." };
+  }
+  revalidateClipperSurfaces(submission.campaignId);
+  revalidatePath("/dashboard/admin/fraud");
+  return { ok: true as const };
+}
+
+export async function listMyLinkedAccounts() {
+  const session = await requireSession();
+  const store = await readStore();
+  return (store.linkedAccounts ?? [])
+    .filter((account) => account.userId === session.id)
+    .sort((a, b) => a.platform.localeCompare(b.platform));
+}
+
+export async function startLinkAccountAction(raw: unknown) {
+  const session = await requireSession();
+  const parsed = linkAccountSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false as const, error: "Enter the handle you post with." };
+  const handle = parsed.data.handle.trim().replace(/^@/, "");
+  const now = nowIso();
+  let id = "";
+  await updateStore((s) => {
+    if (!Array.isArray(s.linkedAccounts)) s.linkedAccounts = [];
+    const existing = s.linkedAccounts.find(
+      (account) => account.userId === session.id && account.platform === parsed.data.platform,
+    );
+    if (existing) {
+      existing.handle = handle;
+      existing.verifiedAt = null;
+      existing.checkSource = null;
+      existing.updatedAt = now;
+      id = existing.id;
+      return;
+    }
+    id = newId();
+    s.linkedAccounts.push({
+      id,
+      userId: session.id,
+      platform: parsed.data.platform,
+      handle,
+      bioCode: makeBioCode(),
+      verifiedAt: null,
+      checkSource: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  });
+  revalidatePath("/dashboard/settings/accounts");
+  return { ok: true as const, id };
+}
+
+export async function verifyLinkAccountAction(raw: unknown) {
+  const session = await requireSession();
+  const parsed = verifyAccountSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false as const, error: "Choose an account to verify." };
+  const store = await readStore();
+  const account = (store.linkedAccounts ?? []).find((item) => item.id === parsed.data.id && item.userId === session.id);
+  if (!account) return { ok: false as const, error: "Account not found." };
+
+  const { bio, source } = await observeBio(account.platform, account.handle);
+  let checkSource: string | null = source;
+  if (bio != null) {
+    if (!bioContainsCode(bio, account.bioCode)) {
+      return { ok: false as const, error: "That public bio does not include your code yet." };
+    }
+  } else if (localBioConfirmAllowed()) {
+    const pasted = parsed.data.pastedBio ?? "";
+    if (!bioContainsCode(pasted, account.bioCode)) {
+      return {
+        ok: false as const,
+        error: "Paste the public bio text that includes your code. This check is for local demo only.",
+      };
+    }
+    checkSource = "local-paste";
+  } else {
+    return { ok: false as const, error: "We could not read a public bio for that account." };
+  }
+
+  await updateStore((s) => {
+    const row = s.linkedAccounts.find((item) => item.id === account.id && item.userId === session.id);
+    if (!row) return;
+    row.verifiedAt = nowIso();
+    row.checkSource = checkSource;
+    row.updatedAt = row.verifiedAt;
+  });
+  revalidatePath("/dashboard/settings/accounts");
+  return { ok: true as const };
 }

@@ -27,9 +27,11 @@ npm run dev
 | brand@fweta.test | Brand | `password123` |
 | creator@fweta.test | Influencer + Clipper | `password123` |
 | clipper@fweta.test | Clipper | `password123` |
-| hello@fweta.com | Admin | `Fweta@100%` |
+
+The admin account is seeded from `ADMIN_EMAIL` and `ADMIN_PASSWORD` (bcrypt-hashed at seed time). Put both in `.env.local` for local admin login, and set the same names on Vercel. Do not commit the password.
 
 ## Docs
 
 - [AGENTS.md](./AGENTS.md) — product & architecture
 - [PHASE.md](./PHASE.md) — phased build status
+- [docs/GO-LIVE.md](./docs/GO-LIVE.md) — production checklist

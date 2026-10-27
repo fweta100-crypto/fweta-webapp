@@ -9,7 +9,7 @@ import {
   requestBookingChangesAction,
 } from "@/app/actions/bookings";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/input";
+import { FieldError } from "@/components/ui/input";
 
 export function BrandBookingActions({
   bookingId,
@@ -19,6 +19,7 @@ export function BrandBookingActions({
   status: string;
 }) {
   const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [revising, setRevising] = useState(false);
@@ -56,52 +57,26 @@ export function BrandBookingActions({
   }
 
   return (
-    <div className="flex w-full flex-col items-start gap-2">
-      {revising ? (
-        <div className="w-full space-y-2">
-          <Textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="What should the influencer change?"
-            rows={3}
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              disabled={pending || note.trim().length < 5}
-              onClick={() =>
-                run(
-                  () => requestBookingChangesAction(bookingId, note),
-                  () => {
-                    setRevising(false);
-                    setNote("");
-                  },
-                )
-              }
-            >
-              {pending ? "Sending…" : "Send back for changes"}
-            </Button>
-            <Button size="sm" variant="ghost" disabled={pending} onClick={() => setRevising(false)}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm"
-            variant="gold"
-            disabled={pending}
-            onClick={() => run(() => approveBookingAction(bookingId))}
-          >
-            {pending ? "Approving…" : "Approve & release payment"}
-          </Button>
-          <Button size="sm" variant="secondary" disabled={pending} onClick={() => setRevising(true)}>
-            Request changes
-          </Button>
-        </div>
-      )}
-      {error ? <p className="text-xs text-danger">{error}</p> : null}
+    <div>
+      <Button
+        size="sm"
+        variant="gold"
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            setError(null);
+            const res = await approveBookingAction(bookingId);
+            if (!res.ok) {
+              setError(res.error);
+              return;
+            }
+            router.refresh();
+          })
+        }
+      >
+        {pending ? "Approving…" : "Approve & release payment"}
+      </Button>
+      <FieldError>{error}</FieldError>
     </div>
   );
 }

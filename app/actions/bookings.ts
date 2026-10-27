@@ -4,7 +4,13 @@ import { revalidatePath } from "next/cache";
 
 import { requireSession } from "@/lib/auth/session";
 import { newId, nowIso, readStore, updateStore } from "@/lib/db/store";
-import type { Booking, InfluencerProfile } from "@/lib/db/types";
+import {
+  notifyBookingAccepted,
+  notifyBookingCompleted,
+  notifyBookingDeclined,
+  notifyBookingRequested,
+} from "@/lib/notifications/events";
+import type { Booking } from "@/lib/db/types";
 import { applyWalletDelta } from "@/lib/wallet/ledger";
 import { bookingSchema, privateDealSchema } from "@/lib/validations/booking";
 import { formatMoney } from "@/lib/utils";
@@ -24,7 +30,12 @@ export async function requestBookingAction(raw: unknown) {
     return { ok: false as const, error: "Brand role required." };
   }
   const parsed = bookingSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false as const, error: "Invalid booking." };
+  if (!parsed.success) {
+    return {
+      ok: false as const,
+      error: parsed.error.issues[0]?.message ?? "Invalid booking.",
+    };
+  }
 
   const store = await readStore();
   const profile = store.influencerProfiles.find(
@@ -77,6 +88,7 @@ export async function requestBookingAction(raw: unknown) {
 
   revalidatePath("/dashboard/brand/bookings");
   revalidatePath("/dashboard/influencer/bookings");
+  await notifyBookingRequested(booking.id);
   return { ok: true as const, id: booking.id };
 }
 
@@ -179,7 +191,7 @@ export async function respondBookingAction(id: string, accept: boolean) {
           availableDelta: booking.amountCents,
           pendingDelta: -booking.amountCents,
           type: "credit",
-          reason: "Booking declined — escrow refunded",
+          reason: "Booking declined. Escrow refunded",
           referenceType: "booking_refund",
           referenceId: booking.id,
         });
@@ -202,6 +214,8 @@ export async function respondBookingAction(id: string, accept: boolean) {
 
   revalidatePath("/dashboard/influencer/bookings");
   revalidatePath("/dashboard/brand/bookings");
+  if (accept) await notifyBookingAccepted(id);
+  else await notifyBookingDeclined(id);
   return { ok: true as const };
 }
 
@@ -303,7 +317,7 @@ export async function approveBookingAction(id: string) {
         availableDelta: 0,
         pendingDelta: -b.amountCents,
         type: "debit",
-        reason: "Booking approved — escrow released",
+        reason: "Booking approved. Escrow released",
         referenceType: "booking_release",
         referenceId: b.id,
       });
@@ -330,7 +344,7 @@ export async function approveBookingAction(id: string) {
 
   revalidatePath("/dashboard/brand/bookings");
   revalidatePath("/dashboard/influencer/bookings");
-  revalidatePath("/dashboard/brand");
+  await notifyBookingCompleted(id);
   return { ok: true as const };
 }
 

@@ -1,11 +1,17 @@
 "use server";
 
+import { createHash } from "crypto";
+
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 
 import { readStore, updateStore, newId, nowIso } from "@/lib/db/store";
-import { getAuthSecretKey } from "@/lib/auth/secret";
+import { getAuthSecretKey, readAuthSecretKey } from "@/lib/auth/secret";
+import { sessionGate } from "@/lib/auth/session-gate";
+import { referralCodeFor } from "@/lib/marketplace/growth";
+import { notifyWelcome } from "@/lib/notifications/events";
+import { triggerWelcomeEmail } from "@/lib/onboarding/welcome";
 import type { Profile, Wallet } from "@/lib/db/types";
 import type { UserRole } from "@/types/enums";
 
@@ -17,6 +23,7 @@ export type SessionUser = {
   displayName: string;
   roles: UserRole[];
   primaryRole: UserRole;
+  credentialVersion: number;
 };
 
 async function signSession(user: SessionUser) {
@@ -25,6 +32,7 @@ async function signSession(user: SessionUser) {
     displayName: user.displayName,
     roles: user.roles,
     primaryRole: user.primaryRole,
+    cv: user.credentialVersion,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(user.id)
@@ -53,9 +61,8 @@ export async function getSession(): Promise<SessionUser | null> {
   const jar = await cookies();
   const token = jar.get(COOKIE_NAME)?.value;
   if (!token) return null;
-  // Resolved outside try: a missing prod secret must throw loudly,
-  // never masquerade as "logged out".
-  const key = getAuthSecretKey();
+  const key = readAuthSecretKey();
+  if (!key) return null;
   try {
     const { payload } = await jwtVerify(token, key);
     if (!payload.sub || typeof payload.email !== "string") return null;
@@ -65,6 +72,7 @@ export async function getSession(): Promise<SessionUser | null> {
       displayName: String(payload.displayName || ""),
       roles: (payload.roles as UserRole[]) || [],
       primaryRole: (payload.primaryRole as UserRole) || "clipper",
+      credentialVersion: typeof payload.cv === "number" ? payload.cv : 0,
     };
   } catch {
     return null;
@@ -74,6 +82,9 @@ export async function getSession(): Promise<SessionUser | null> {
 export async function requireSession(): Promise<SessionUser> {
   const session = await getSession();
   if (!session) throw new Error("Unauthorized");
+  const profile = await getProfileById(session.id);
+  const gate = sessionGate(session, profile);
+  if (gate === "suspended" || gate === "expired") throw new Error("Unauthorized");
   return session;
 }
 
@@ -101,7 +112,8 @@ export async function signup(input: {
   password: string;
   displayName?: string;
   roles: UserRole[];
-}): Promise<{ ok: true } | { ok: false; error: string; code?: "email_taken" }> {
+  referralCode?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
   const email = input.email.trim().toLowerCase();
   if (!email || input.password.length < 8) {
     return { ok: false, error: "Valid email and password (8+ chars) required." };
@@ -149,6 +161,14 @@ export async function signup(input: {
       }
       s.profiles.push(profile);
       ensureWallet(s, profile.id);
+      profile.referralCode = referralCodeFor(profile.id);
+      const code = input.referralCode?.trim().toUpperCase();
+      if (code) {
+        const referrer = s.profiles.find(
+          (item) => item.id !== profile.id && (item.referralCode === code || referralCodeFor(item.id) === code),
+        );
+        if (referrer) profile.referredByUserId = referrer.id;
+      }
     });
   } catch (e) {
     return {
@@ -158,14 +178,27 @@ export async function signup(input: {
     };
   }
 
-  const token = await signSession({
-    id: profile.id,
+  try {
+    const token = await signSession({
+      id: profile.id,
+      email: profile.email,
+      displayName: profile.displayName,
+      roles: profile.roles,
+      primaryRole: profile.primaryRole,
+      credentialVersion: 0,
+    });
+    await setSessionCookie(token);
+  } catch (err) {
+    console.warn("[fweta] signup could not start a session:", err instanceof Error ? err.message : err);
+    return { ok: false, error: "Account saved, but sign-in is unavailable right now." };
+  }
+  await notifyWelcome(profile);
+  await triggerWelcomeEmail({
+    userId: profile.id,
     email: profile.email,
     displayName: profile.displayName,
     roles: profile.roles,
-    primaryRole: profile.primaryRole,
   });
-  await setSessionCookie(token);
   return { ok: true };
 }
 
@@ -182,14 +215,20 @@ export async function login(input: {
   const valid = await bcrypt.compare(input.password, profile.passwordHash);
   if (!valid) return { ok: false, error: "Invalid email or password." };
 
-  const token = await signSession({
-    id: profile.id,
-    email: profile.email,
-    displayName: profile.displayName,
-    roles: profile.roles,
-    primaryRole: profile.primaryRole,
-  });
-  await setSessionCookie(token);
+  try {
+    const token = await signSession({
+      id: profile.id,
+      email: profile.email,
+      displayName: profile.displayName,
+      roles: profile.roles,
+      primaryRole: profile.primaryRole,
+      credentialVersion: profile.credentialVersion ?? 0,
+    });
+    await setSessionCookie(token);
+  } catch (err) {
+    console.warn("[fweta] login could not start a session:", err instanceof Error ? err.message : err);
+    return { ok: false, error: "Sign-in is unavailable right now." };
+  }
   return { ok: true };
 }
 
@@ -204,6 +243,7 @@ export async function refreshSessionFromProfile(profile: Profile) {
     displayName: profile.displayName,
     roles: profile.roles,
     primaryRole: profile.primaryRole,
+    credentialVersion: profile.credentialVersion ?? 0,
   });
   await setSessionCookie(token);
 }
@@ -254,40 +294,68 @@ const DEMO_ACCOUNTS: Array<Omit<Profile, "passwordHash" | "id">> = [
     suspended: false,
     onboardingCompletedAt: "seeded",
   },
-  {
-    email: "hello@fweta.com",
-    displayName: "Fweta Admin",
-    bio: "Platform operations",
-    avatarUrl: null,
-    roles: ["admin"],
-    primaryRole: "admin",
-    notifyEmail: true,
-    notifyWithdrawals: true,
-    notifyBookings: true,
-    createdAt: "",
-    updatedAt: "",
-    suspended: false,
-    onboardingCompletedAt: "seeded",
-  },
 ];
 
-const ADMIN_EMAIL = "hello@fweta.com";
+/** Previous local admin address, migrated onto ADMIN_EMAIL when that env is set. */
 const LEGACY_ADMIN_EMAIL = "admin@fweta.test";
 
 let seedInFlight: Promise<{ seeded: boolean }> | null = null;
+let adminEnvWarningShown = false;
+/** Avoid re-hashing when this process already synced the current env admin. */
+let syncedAdminKey: string | null = null;
 
 /** Precomputed bcrypt hash for demo password `password123` — avoids hashing on every cold start. */
 const DEMO_PASSWORD_HASH = "$2b$10$zG4dij3FDqNB0B41xbteQ.MqWV4oXM5XqSmLk96dYyuha0hGOxirW";
 
-/** Precomputed bcrypt hash for admin password `Fweta@100%`. */
-const ADMIN_PASSWORD_HASH = "$2b$10$JyDk0P0jYLBwwMiHNwPBFO0snFcZ2CC28/pph9CuiF8T4WznHSR8i";
+type AdminSeed = { email: string; password: string };
 
-function passwordHashForEmail(email: string): string {
-  return email === ADMIN_EMAIL ? ADMIN_PASSWORD_HASH : DEMO_PASSWORD_HASH;
+function readAdminSeed(): AdminSeed | null {
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase() ?? "";
+  const password = process.env.ADMIN_PASSWORD ?? "";
+  if (!email && !password) {
+    if (!adminEnvWarningShown) {
+      adminEnvWarningShown = true;
+      console.warn(
+        process.env.NODE_ENV === "production"
+          ? "[fweta] ADMIN_EMAIL and ADMIN_PASSWORD are unset. Seeding skipped."
+          : "[fweta] ADMIN_EMAIL and ADMIN_PASSWORD are unset. Demo accounts still seed; the admin account does not.",
+      );
+    }
+    return null;
+  }
+  if (!email.includes("@") || password.length < 8) {
+    if (!adminEnvWarningShown) {
+      adminEnvWarningShown = true;
+      console.warn(
+        "[fweta] Set both ADMIN_EMAIL and ADMIN_PASSWORD (8+ characters). Admin account was not seeded.",
+      );
+    }
+    return null;
+  }
+  return { email, password };
+}
+
+function findSeedAdmin(profiles: Profile[], email: string): Profile | undefined {
+  const exact = profiles.find((p) => p.email.trim().toLowerCase() === email);
+  if (exact) return exact;
+  const legacy = profiles.find((p) => p.email.trim().toLowerCase() === LEGACY_ADMIN_EMAIL);
+  if (legacy) return legacy;
+  const admins = profiles.filter((p) => p.roles.includes("admin"));
+  if (admins.length === 1) return admins[0];
+  return undefined;
 }
 
 async function seedDemoAccountsOnce(): Promise<{ seeded: boolean }> {
   try {
+    const adminSeed = readAdminSeed();
+    if (
+      !adminSeed &&
+      process.env.NODE_ENV === "production" &&
+      process.env.FWETA_SEED_DEMO !== "true"
+    ) {
+      return { seeded: false };
+    }
+
     const existing = await readStore();
     const seen = new Set<string>();
     const deduped = existing.profiles.filter((p) => {
@@ -298,27 +366,51 @@ async function seedDemoAccountsOnce(): Promise<{ seeded: boolean }> {
     });
     const needsDedupe = deduped.length !== existing.profiles.length;
 
-    const missingAccounts = DEMO_ACCOUNTS.filter(
-      (account) =>
-        !existing.profiles.some(
-          (p) => p.email.trim().toLowerCase() === account.email.trim().toLowerCase(),
-        ),
-    );
+    const adminKey = adminSeed
+      ? createHash("sha256").update(`${adminSeed.email}\n${adminSeed.password}`).digest("hex")
+      : null;
 
-    const legacyAdmin = existing.profiles.find(
-      (p) => p.email.trim().toLowerCase() === LEGACY_ADMIN_EMAIL,
-    );
-    const currentAdmin = existing.profiles.find(
-      (p) => p.email.trim().toLowerCase() === ADMIN_EMAIL,
-    );
-    const needsAdminSync =
-      Boolean(legacyAdmin) ||
-      !currentAdmin ||
-      currentAdmin.passwordHash !== ADMIN_PASSWORD_HASH ||
-      currentAdmin.primaryRole !== "admin" ||
-      !currentAdmin.roles.includes("admin");
+    const seedDemoUsers =
+      process.env.FWETA_SEED_DEMO === "true" || process.env.NODE_ENV !== "production";
+    const missingAccounts = seedDemoUsers
+      ? DEMO_ACCOUNTS.filter(
+          (account) =>
+            !existing.profiles.some(
+              (p) => p.email.trim().toLowerCase() === account.email.trim().toLowerCase(),
+            ),
+        )
+      : [];
 
-    if (!needsDedupe && missingAccounts.length === 0 && !needsAdminSync) {
+    let adminNeedsWrite = false;
+    let adminHash: string | null = null;
+    let adminTargetId: string | null = null;
+
+    if (adminSeed && adminKey) {
+      const target = findSeedAdmin(existing.profiles, adminSeed.email);
+      adminTargetId = target?.id ?? null;
+      const roleOk =
+        Boolean(target) &&
+        target!.email.trim().toLowerCase() === adminSeed.email &&
+        target!.roles.includes("admin") &&
+        target!.primaryRole === "admin";
+      if (roleOk && syncedAdminKey === adminKey) {
+        adminNeedsWrite = false;
+      } else if (target) {
+        const matches = await bcrypt.compare(adminSeed.password, target.passwordHash);
+        if (roleOk && matches) {
+          syncedAdminKey = adminKey;
+          adminNeedsWrite = false;
+        } else {
+          adminHash = matches ? target.passwordHash : await bcrypt.hash(adminSeed.password, 10);
+          adminNeedsWrite = true;
+        }
+      } else {
+        adminHash = await bcrypt.hash(adminSeed.password, 10);
+        adminNeedsWrite = true;
+      }
+    }
+
+    if (!needsDedupe && missingAccounts.length === 0 && !adminNeedsWrite) {
       return { seeded: false };
     }
 
@@ -327,46 +419,55 @@ async function seedDemoAccountsOnce(): Promise<{ seeded: boolean }> {
 
     await updateStore((s) => {
       if (needsDedupe) {
-        s.profiles = deduped;
+        // Dedupe the document just loaded for this attempt. Assigning the
+        // earlier read would drop signups and direct edits that landed since.
+        const seen = new Set<string>();
+        s.profiles = s.profiles.filter((p) => {
+          const email = p.email.trim().toLowerCase();
+          if (seen.has(email)) return false;
+          seen.add(email);
+          return true;
+        });
       }
 
-      const byEmail = (email: string) =>
-        s.profiles.find((p) => p.email.trim().toLowerCase() === email);
+      if (adminSeed && adminNeedsWrite && adminHash) {
+        const admin =
+          (adminTargetId ? s.profiles.find((p) => p.id === adminTargetId) : undefined) ??
+          findSeedAdmin(s.profiles, adminSeed.email);
 
-      const legacy = byEmail(LEGACY_ADMIN_EMAIL);
-      let admin = byEmail(ADMIN_EMAIL);
-
-      if (legacy && !admin) {
-        legacy.email = ADMIN_EMAIL;
-        admin = legacy;
-      } else if (legacy && admin && legacy.id !== admin.id) {
-        s.profiles = s.profiles.filter((p) => p.id !== legacy.id);
-      }
-
-      if (!admin) {
-        const account = DEMO_ACCOUNTS.find((a) => a.email === ADMIN_EMAIL)!;
-        admin = {
-          ...account,
-          id: newId(),
-          email: ADMIN_EMAIL,
-          createdAt: now,
-          updatedAt: now,
-          passwordHash: ADMIN_PASSWORD_HASH,
-        };
-        s.profiles.push(admin);
-        ensureWallet(s, admin.id);
-        added += 1;
-      } else {
-        admin.email = ADMIN_EMAIL;
-        admin.passwordHash = ADMIN_PASSWORD_HASH;
-        admin.roles = ["admin"];
-        admin.primaryRole = "admin";
-        admin.updatedAt = now;
+        if (!admin) {
+          const created: Profile = {
+            id: newId(),
+            email: adminSeed.email,
+            passwordHash: adminHash,
+            displayName: "Fweta Admin",
+            bio: "Platform operations",
+            avatarUrl: null,
+            roles: ["admin"],
+            primaryRole: "admin",
+            notifyEmail: true,
+            notifyWithdrawals: true,
+            notifyBookings: true,
+            createdAt: now,
+            updatedAt: now,
+            suspended: false,
+            onboardingCompletedAt: "seeded",
+          };
+          s.profiles.push(created);
+          ensureWallet(s, created.id);
+          added += 1;
+        } else {
+          admin.email = adminSeed.email;
+          admin.passwordHash = adminHash;
+          if (!admin.roles.includes("admin")) admin.roles.push("admin");
+          admin.primaryRole = "admin";
+          admin.updatedAt = now;
+        }
       }
 
       for (const account of missingAccounts) {
         const email = account.email.trim().toLowerCase();
-        if (email === ADMIN_EMAIL) continue;
+        if (adminSeed && email === adminSeed.email) continue;
         if (s.profiles.some((p) => p.email.trim().toLowerCase() === email)) continue;
 
         const profile: Profile = {
@@ -375,7 +476,7 @@ async function seedDemoAccountsOnce(): Promise<{ seeded: boolean }> {
           email,
           createdAt: now,
           updatedAt: now,
-          passwordHash: passwordHashForEmail(email),
+          passwordHash: DEMO_PASSWORD_HASH,
         };
         s.profiles.push(profile);
         ensureWallet(s, profile.id);
@@ -383,7 +484,11 @@ async function seedDemoAccountsOnce(): Promise<{ seeded: boolean }> {
       }
     });
 
-    return { seeded: added > 0 || needsDedupe || needsAdminSync };
+    if (adminSeed && adminNeedsWrite && adminKey) {
+      syncedAdminKey = adminKey;
+    }
+
+    return { seeded: added > 0 || needsDedupe || adminNeedsWrite };
   } catch (err) {
     console.warn("[fweta] seedDemoAccounts failed:", err);
     return { seeded: false };

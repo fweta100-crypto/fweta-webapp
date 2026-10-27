@@ -1,22 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useTransition } from "react";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Briefcase,
-  Check,
-  CircleAlert,
-  Eye,
-  EyeOff,
-  LoaderCircle,
-  Lock,
-  Mail,
-  Sparkles,
-  type LucideIcon,
-} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState, useTransition } from "react";
 
 import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
@@ -47,26 +33,19 @@ const PATHS: { id: Path; title: string; body: string; icon: LucideIcon }[] = [
   },
 ];
 
-const CREATOR_OPTIONS: { id: Extract<UserRole, "clipper" | "influencer">; title: string; body: string }[] = [
-  { id: "clipper", title: "Clip campaigns", body: "Post clips and earn per verified view." },
-  { id: "influencer", title: "Get booked", body: "Set your own rates and get hired by brands." },
-];
-
-function initialSelection(preset: string | null): {
-  path: Path | null;
-  creatorRoles: UserRole[];
-} {
-  if (preset === "brand") return { path: "brand", creatorRoles: ["clipper", "influencer"] };
-  if (preset === "creator") return { path: "creator", creatorRoles: ["clipper", "influencer"] };
-  if (preset === "influencer") return { path: "creator", creatorRoles: ["influencer"] };
-  if (preset === "clipper") return { path: "creator", creatorRoles: ["clipper"] };
-  return { path: null, creatorRoles: ["clipper", "influencer"] };
+function rolesFromPreset(preset?: string): UserRole[] {
+  if (preset === "brand" || preset === "business") return ["brand"];
+  if (preset === "creator") return ["clipper", "influencer"];
+  if (preset === "influencer") return ["influencer"];
+  if (preset === "clipper") return ["clipper"];
+  // No hidden default. A preselected Clipper made a business click look selected
+  // while Clipper stayed on, and onboarding then demanded a social profile.
+  return [];
 }
 
-export function SignupForm() {
+export function SignupForm({ presetRole }: { presetRole?: string }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const [initial] = useState(() => initialSelection(searchParams.get("role")));
+  const initialRoles = useMemo(() => rolesFromPreset(presetRole), [presetRole]);
 
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -159,7 +138,7 @@ export function SignupForm() {
             One account. Multiple ways to earn and grow.
           </h2>
           <p className="text-sm leading-relaxed text-white/65">
-            Join as a creator, influencer, business — or all three. Switch roles anytime from
+            Join as a creator, influencer, business, or all three. Switch roles anytime from
             settings.
           </p>
         </div>
@@ -201,14 +180,48 @@ export function SignupForm() {
             </p>
           </div>
 
-          <div className="mt-3 grid grid-cols-3 gap-1.5" aria-hidden>
-            {STEPS.map((s, i) => (
-              <span
-                key={s}
-                className={cn(
-                  "h-1 rounded-full transition-colors duration-300",
-                  i <= stepIndex ? "bg-gold" : "bg-surface-2",
-                )}
+          <h1 className="font-display text-[2.35rem] leading-none text-foreground md:text-5xl">
+            Join fweta
+          </h1>
+          <p className="mt-3 text-sm text-muted">
+            Choose one or more roles. A business account does not need a social profile.
+          </p>
+          <div className="hairline-gold my-7" />
+
+          <form
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const fd = new FormData(e.currentTarget);
+              setError(null);
+              startTransition(async () => {
+                const res = await signupAction({
+                  email: String(fd.get("email") || ""),
+                  password: String(fd.get("password") || ""),
+                  roles,
+                });
+                if (!res.ok) {
+                  setError(res.error);
+                  return;
+                }
+                router.push("/onboarding");
+                router.refresh();
+              });
+            }}
+          >
+            <div>
+              <Label htmlFor="email">Email</Label>
+              <Input id="email" name="email" type="email" required placeholder="you@email.com" autoComplete="email" />
+            </div>
+            <div>
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                name="password"
+                type="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
               />
             ))}
           </div>
@@ -303,145 +316,11 @@ export function SignupForm() {
                 </div>
               ) : null}
 
-              {step === "role" ? (
-                <div className="space-y-3">
-                  <div className="grid gap-2.5" role="radiogroup" aria-label="What brings you here?">
-                    {PATHS.map(({ id, title, body, icon: Icon }) => {
-                      const active = path === id;
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          role="radio"
-                          aria-checked={active}
-                          onClick={() => {
-                            setPath(id);
-                            setError(null);
-                          }}
-                          className={cn(
-                            "flex items-center gap-3.5 rounded-2xl border px-4 py-4 text-left transition",
-                            active
-                              ? "border-gold bg-gold-soft"
-                              : "border-border bg-white hover:border-border-strong",
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
-                              active ? "bg-white text-gold-deep" : "bg-surface-2 text-muted",
-                            )}
-                          >
-                            <Icon className="h-5 w-5" aria-hidden />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-[15px] font-medium text-foreground">{title}</span>
-                            <span className="block text-sm text-muted">{body}</span>
-                          </span>
-                          <span
-                            className={cn(
-                              "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition",
-                              active ? "border-gold bg-gold text-white" : "border-border-strong",
-                            )}
-                          >
-                            {active ? <Check className="h-3 w-3" strokeWidth={3} aria-hidden /> : null}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {path === "creator" ? (
-                    <fieldset className="animate-fade-in rounded-2xl border border-border bg-surface-2/40 p-3">
-                      <legend className="px-1 text-xs font-medium text-muted">
-                        How do you want to earn? Pick one or both.
-                      </legend>
-                      <div className="mt-1 space-y-1">
-                        {CREATOR_OPTIONS.map(({ id, title, body }) => {
-                          const checked = creatorRoles.includes(id);
-                          return (
-                            <label
-                              key={id}
-                              className="flex cursor-pointer items-start gap-3 rounded-xl px-2 py-2 transition hover:bg-white"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => {
-                                  toggleCreatorRole(id);
-                                  setError(null);
-                                }}
-                                className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--gold)]"
-                              />
-                              <span>
-                                <span className="block text-sm font-medium text-foreground">{title}</span>
-                                <span className="block text-xs text-muted">{body}</span>
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </fieldset>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {error ? (
-                <div
-                  role="alert"
-                  className="animate-fade-in flex items-start gap-2.5 rounded-xl border border-danger/20 bg-danger-soft px-3.5 py-3 text-sm text-danger"
-                >
-                  <CircleAlert className="mt-px h-4 w-4 shrink-0" aria-hidden />
-                  <div className="space-y-1.5">
-                    <p>{error}</p>
-                    {emailTaken ? (
-                      <p className="flex flex-wrap gap-x-3 gap-y-1 font-medium">
-                        <Link
-                          href={`/login?email=${encodeURIComponent(email)}`}
-                          className="underline underline-offset-2"
-                        >
-                          Log in instead
-                        </Link>
-                        <button
-                          type="button"
-                          onClick={() => goTo("email")}
-                          className="underline underline-offset-2"
-                        >
-                          Use a different email
-                        </button>
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              <Button type="submit" size="lg" className="group mt-1" disabled={pending}>
-                {pending ? (
-                  <>
-                    <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
-                    Creating account…
-                  </>
-                ) : (
-                  <>
-                    {step === "role" ? "Create account" : "Continue"}
-                    <ArrowRight
-                      className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-                      aria-hidden
-                    />
-                  </>
-                )}
-              </Button>
-            </form>
-          </div>
-
-          <p className="mt-8 border-t border-border pt-6 text-center text-sm text-muted">
-            Already have an account?{" "}
-            <Link
-              href="/login"
-              className="font-medium text-foreground underline-offset-4 hover:text-gold-deep hover:underline"
-            >
-              Log in
-            </Link>
-          </p>
+            <FieldError>{error}</FieldError>
+            <Button type="submit" size="lg" className="mt-2" disabled={pending || roles.length === 0}>
+              {pending ? "Creating…" : roles.length === 0 ? "Select a role" : "Create account"}
+            </Button>
+          </form>
         </div>
       </div>
     </div>

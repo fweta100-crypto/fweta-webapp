@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { listDepositsAdmin } from "@/app/actions/wallet";
-import { DepositAdminActions } from "@/components/forms/deposit-admin-actions";
+import { DepositReviewButtons } from "@/components/forms/deposit-review-buttons";
 import { Badge, EmptyState, PageHeader } from "@/components/ui/card";
 import { getSession } from "@/lib/auth/session";
 import { readStore } from "@/lib/db/store";
@@ -13,59 +12,73 @@ export default async function AdminDepositsPage() {
     redirect("/dashboard");
   }
 
-  const [deposits, store] = await Promise.all([listDepositsAdmin(), readStore()]);
+  const store = await readStore();
+  const deposits = store.brandDeposits
+    .slice()
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const pending = deposits.filter((deposit) => deposit.status === "pending");
+  const settled = deposits.filter((deposit) => deposit.status !== "pending");
 
   return (
     <div className="dash-stack">
       <PageHeader
         title="Deposits"
-        description="Confirm brand EFT deposits before crediting wallets."
+        description="Confirm a brand EFT before the wallet is credited. Manual EFT only."
       />
 
-      {deposits.length === 0 ? (
+      {pending.length === 0 ? (
         <EmptyState
-          title="No deposits"
-          description="Brand deposit records will appear here."
+          title="No deposits waiting"
+          description="When a business submits an EFT, it shows up here for confirmation."
         />
       ) : (
         <ul className="space-y-2.5">
-          {deposits.map((d) => {
-            const brand = store.profiles.find((p) => p.id === d.brandId);
+          {pending.map((deposit) => {
+            const brand = store.profiles.find((profile) => profile.id === deposit.brandId);
             return (
-              <li key={d.id} className="list-row items-start">
-                <div className="w-full space-y-3">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium">{brand?.displayName ?? brand?.email ?? "Brand"}</p>
-                      <p className="mt-1 font-display text-2xl tracking-tight">
-                        {formatMoney(d.amountCents)}
-                      </p>
-                      <p className="mt-2 text-sm text-muted">{d.note}</p>
-                      <p className="text-xs text-muted">{new Date(d.createdAt).toLocaleString()}</p>
-                    </div>
-                    <Badge
-                      tone={
-                        d.status === "credited"
-                          ? "success"
-                          : d.status === "rejected"
-                            ? "danger"
-                            : "gold"
-                      }
-                    >
-                      {d.status}
-                    </Badge>
-                  </div>
-                  {d.status === "pending" ? (
-                    <div className="border-t border-border/80 pt-3">
-                      <DepositAdminActions depositId={d.id} />
-                    </div>
-                  ) : null}
+              <li key={deposit.id} className="list-row flex-wrap items-start">
+                <div className="min-w-0">
+                  <p className="font-medium">{formatMoney(deposit.amountCents)}</p>
+                  <p className="text-sm text-foreground">
+                    {brand?.displayName ?? "Unknown brand"} · {brand?.email ?? deposit.brandId}
+                  </p>
+                  <p className="text-sm text-muted">{deposit.note}</p>
+                  <p className="text-xs text-muted-light">
+                    {new Date(deposit.createdAt).toLocaleString("en-NA")}
+                  </p>
                 </div>
+                <DepositReviewButtons depositId={deposit.id} />
               </li>
             );
           })}
         </ul>
       )}
+
+      {settled.length > 0 ? (
+        <section className="space-y-2.5">
+          <h2 className="font-display text-xl tracking-tight">History</h2>
+          <ul className="space-y-2.5">
+            {settled.map((deposit) => {
+              const brand = store.profiles.find((profile) => profile.id === deposit.brandId);
+              return (
+                <li key={deposit.id} className="list-row items-start">
+                  <div>
+                    <p className="font-medium">{formatMoney(deposit.amountCents)}</p>
+                    <p className="text-sm text-muted">
+                      {brand?.displayName ?? "Unknown brand"}
+                      {deposit.bankReference ? ` · ${deposit.bankReference}` : ""}
+                    </p>
+                    <p className="text-sm text-muted">{deposit.note}</p>
+                  </div>
+                  <Badge tone={deposit.status === "credited" ? "success" : "danger"}>
+                    {deposit.status}
+                  </Badge>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }

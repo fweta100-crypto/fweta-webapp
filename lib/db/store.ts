@@ -4,18 +4,22 @@ import path from "path";
 
 import { getPayoutSecret } from "@/lib/auth/secret";
 
+import { hydrateStoreCampaigns } from "@/lib/rewards/content-rewards";
+
+import { activeStoreDriver } from "./adapter";
 import type { DatabaseStore } from "./types";
-import {
-  isSupabaseStoreEnabled,
-  loadStoreFromSupabase,
-  saveStoreToSupabase,
-} from "./supabase-store";
+import { commitStoreToSupabase, loadStoreFromSupabase, StorePersistError } from "./supabase-store";
 
 /**
- * Local dev: file store at data/store.json (+ in-memory cache).
- * Vercel/production: set SUPABASE_SERVICE_ROLE_KEY to persist via Supabase.
- * - Relational tables (fweta_*) when migration 20260829150000 is applied
- * - JSON backup in fweta_app_store (migration 20260829140000)
+ * Store adapter.
+ * - Local dev (no Supabase keys, or FWETA_STORE=file): data/store.json
+ * - Production (Supabase URL + service role key): Postgres JSON document.
+ *   Writes reload that document and compare-and-swap on its revision.
+ *   The in-memory copy is a read cache only. It is not the base for a save,
+ *   so another instance or a direct SQL edit cannot be overwritten by it.
+ *   Relational tables are optional, and only when FWETA_RELATIONAL_SYNC=true.
+ * A failed Supabase load serves an empty view for that request and does not
+ * write it back. See lib/db/adapter.ts.
  */
 const DATA_DIR =
   process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME
@@ -37,10 +41,30 @@ const emptyStore = (): DatabaseStore => ({
   bookings: [],
   brandDeposits: [],
   fraudFlags: [],
+  notifications: [],
+  notificationDispatches: [],
+  linkedAccounts: [],
+  socialAccounts: [],
+  workspaces: [],
+  workspaceMembers: [],
+  savedCampaigns: [],
+  supportTickets: [],
+  supportMessages: [],
+  auditLog: [],
+  prizeAwards: [],
+  platformSettings: [],
+  ugcBriefs: [],
+  ugcApplications: [],
+  ugcDeliveries: [],
+  contentLicenses: [],
+  licenseDisputes: [],
+  creatorPortfolios: [],
+  businessListings: [],
+  creatorReviews: [],
 });
 
 declare global {
-  // Persist store across hot reloads / warm serverless instances
+  // Read cache for this process. Writes do not use it as the document they save.
   var __fwetaStore: DatabaseStore | undefined;
 }
 
@@ -50,7 +74,8 @@ let initPromise: Promise<DatabaseStore> | null = null;
 function cloneStore(store: DatabaseStore): DatabaseStore {
   // Prevent callers mutating the cached store outside updateStore().
   // Store is small (local MVP) so structuredClone cost is negligible.
-  return structuredClone(store);
+  // Hydrate so campaigns saved before content-rewards fields still read cleanly.
+  return hydrateStoreCampaigns(structuredClone(store));
 }
 
 async function loadFromDisk(): Promise<DatabaseStore | null> {
@@ -88,7 +113,7 @@ async function persist(store: DatabaseStore) {
     await fs.writeFile(tmp, JSON.stringify(store, null, 2), "utf8");
     await fs.rename(tmp, STORE_PATH);
   } catch (err) {
-    // Never crash the request if disk is unavailable — memory store still works.
+    // Never crash the request if disk is unavailable. The memory store still works.
     console.warn("[fweta] persist skipped:", err instanceof Error ? err.message : err);
   }
 }
@@ -98,22 +123,26 @@ async function initStore(): Promise<DatabaseStore> {
     return globalThis.__fwetaStore;
   }
 
-  if (isSupabaseStoreEnabled()) {
+  if (activeStoreDriver() === "supabase") {
     try {
       const fromRemote = await loadStoreFromSupabase();
-      const store = fromRemote ?? emptyStore();
+      if (!fromRemote) {
+        console.warn(
+          "[fweta] Supabase store could not be loaded. Serving an empty view for this request and not writing it back.",
+        );
+        return hydrateStoreCampaigns(emptyStore());
+      }
+      const store = hydrateStoreCampaigns(fromRemote);
       globalThis.__fwetaStore = store;
       return store;
     } catch (err) {
       console.warn("[fweta] ensureStore supabase failed:", err instanceof Error ? err.message : err);
-      const store = emptyStore();
-      globalThis.__fwetaStore = store;
-      return store;
+      return hydrateStoreCampaigns(emptyStore());
     }
   }
 
   const fromDisk = await loadFromDisk();
-  const store = fromDisk ?? emptyStore();
+  const store = hydrateStoreCampaigns(fromDisk ?? emptyStore());
   globalThis.__fwetaStore = store;
   if (!fromDisk) {
     await persist(store);
@@ -144,20 +173,29 @@ export async function updateStore(
   // Chain onto a never-rejected queue: a throwing mutator must not poison
   // all future writes (previously `writeQueue.then(...)` stayed rejected).
   const run = writeQueue.catch(() => undefined).then(async () => {
-    const store = await ensureStore();
-    await mutator(store);
-    globalThis.__fwetaStore = store;
-
-    if (isSupabaseStoreEnabled()) {
+    if (activeStoreDriver() === "supabase") {
+      // commitStoreToSupabase loads the current row itself. Saving the warm
+      // cache here is what let one instance drop another instance's signup.
       try {
-        await saveStoreToSupabase(store);
+        const saved = await commitStoreToSupabase(mutator);
+        globalThis.__fwetaStore = saved;
       } catch (err) {
-        console.warn("[fweta] supabase save failed:", err instanceof Error ? err.message : err);
+        if (err instanceof StorePersistError) {
+          globalThis.__fwetaStore = undefined;
+        }
+        throw err;
       }
       return;
     }
 
-    await persist(store);
+    const current = await ensureStore();
+    // Mutate a copy. A throw (insufficient funds, not allowed) must not leave
+    // a half-applied wallet debit or an orphan campaign in memory.
+    // cloneStore already hydrates campaigns saved before content-rewards fields.
+    const draft = cloneStore(current);
+    await mutator(draft);
+    globalThis.__fwetaStore = draft;
+    await persist(draft);
   });
   // Keep the queue healthy for the next caller, but still surface this error.
   writeQueue = run.catch(() => undefined);

@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { listBrandCampaigns } from "@/app/actions/campaigns";
 import { listBrandBookings } from "@/app/actions/bookings";
 import { getMyWallet } from "@/app/actions/wallet";
-import { BudgetBar } from "@/components/ui/budget-bar";
+import { PlatformChip } from "@/components/platforms/platform-chip";
 import { Button } from "@/components/ui/button";
 import { Card, EmptyState, PageHeader, SectionHeader, Stat, StatGrid } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -104,31 +104,43 @@ export default async function BrandDashboardPage() {
         }
       />
 
-      {isNew ? (
-        <Card>
-          <h2 className="font-display text-2xl tracking-tight">Get started</h2>
-          <p className="mt-1 text-sm text-muted">
-            Wallet: <span className="font-medium text-foreground">{formatMoney(wallet.availableCents)}</span>
-          </p>
-          <ol className="mt-5 grid gap-3 md:grid-cols-3">
-            {steps.map((step, i) => (
-              <li key={step.title} className="flex flex-col rounded-2xl border border-border bg-white p-4">
-                <span
-                  className={
-                    step.done
-                      ? "flex size-7 items-center justify-center rounded-full bg-success-soft text-success"
-                      : "flex size-7 items-center justify-center rounded-full bg-gold-soft text-xs font-semibold text-gold-deep"
-                  }
-                >
-                  {step.done ? <Check className="size-4" aria-hidden /> : i + 1}
-                </span>
-                <p className="mt-3 font-medium">{step.title}</p>
-                <p className="mt-1 flex-1 text-sm text-muted">{step.body}</p>
-                {step.done ? null : (
-                  <Link href={step.href} className="mt-4">
-                    <Button size="sm" variant={i === 0 && !hasFunds ? "primary" : "secondary"}>
-                      {step.cta}
-                    </Button>
+      <StatGrid>
+        <Stat label="Active campaigns" value={String(active)} />
+        <Stat label="Budget spent" value={formatMoney(spent)} />
+        <Stat label="Pending reviews" value={String(pendingSubs)} />
+        <Stat label="Wallet" value={formatMoney(wallet.availableCents)} hint="For bookings & deposits" />
+      </StatGrid>
+
+      <div className="dash-split">
+        <section>
+          <SectionHeader title="Recent campaigns" href="/dashboard/brand/campaigns" />
+          {campaigns.length === 0 ? (
+            <EmptyState
+              title="No campaigns yet"
+              description="Launch a clipping or UGC campaign and invite creators to distribute for you."
+              action={
+                <Link href="/dashboard/brand/campaigns/new">
+                  <Button size="sm">Create campaign</Button>
+                </Link>
+              }
+            />
+          ) : (
+            <ul className="space-y-2.5">
+              {campaigns.slice(0, 5).map((c) => (
+                <li key={c.id}>
+                  <Link href={`/dashboard/brand/campaigns/${c.id}`} className="list-row">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{c.title}</p>
+                      <p className="text-xs text-muted">
+                        {c.status} · {formatMoney(c.budgetSpentCents)} / {formatMoney(c.budgetTotalCents)}
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {c.platforms.map((platform) => (
+                          <PlatformChip key={platform} platform={platform} />
+                        ))}
+                      </div>
+                    </div>
+                    <span className="shrink-0 text-xs capitalize text-muted">{c.type}</span>
                   </Link>
                 )}
               </li>
@@ -156,14 +168,26 @@ export default async function BrandDashboardPage() {
 
       {todos.length > 0 ? (
         <section>
-          <SectionHeader title="Needs your attention" />
-          <ul className="space-y-2.5">
-            {todos.map((t) => (
-              <li key={t.href + t.label}>
-                <Link href={t.href} className="list-row">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="size-2 shrink-0 rounded-full bg-gold" />
-                    <p className="text-sm font-medium">{t.label}</p>
+          <SectionHeader title="Bookings" href="/dashboard/brand/creators" linkLabel="Find creators" />
+          {bookings.length === 0 ? (
+            <EmptyState
+              title="No bookings yet"
+              description="Hire influencers at their listed rates for trusted sponsored posts."
+              action={
+                <Link href="/dashboard/brand/creators">
+                  <Button size="sm" variant="secondary">
+                    Find creators
+                  </Button>
+                </Link>
+              }
+            />
+          ) : (
+            <ul className="space-y-2.5">
+              {bookings.slice(0, 5).map((b) => (
+                <li key={b.id} className="list-row">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium capitalize">{b.status.replace(/_/g, " ")}</p>
+                    <p className="text-xs text-muted">{formatMoney(b.amountCents)}</p>
                   </div>
                   <span className="shrink-0 text-xs text-gold-deep">{t.cta} →</span>
                 </Link>

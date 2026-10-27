@@ -6,6 +6,7 @@ export type OnboardingField =
   | "phone"
   | "socialTiktok"
   | "socialInstagram"
+  | "socialFacebook"
   | "socialYoutube"
   | "socialX"
   | "companyName"
@@ -35,7 +36,7 @@ const CORE: OnboardingStep[] = [
   {
     id: "lastName",
     title: "And your surname?",
-    subtitle: "Almost there — this stays on your account.",
+    subtitle: "Almost there. This stays on your account.",
     xp: 10,
     placeholder: "Nangolo",
   },
@@ -50,7 +51,7 @@ const CORE: OnboardingStep[] = [
   {
     id: "socialTiktok",
     title: "What's your TikTok?",
-    subtitle: "Handle or profile link — skip if you don't use TikTok.",
+    subtitle: "Handle or profile link. Skip if you don't use TikTok.",
     xp: 10,
     optional: true,
     placeholder: "@yourhandle",
@@ -58,15 +59,23 @@ const CORE: OnboardingStep[] = [
   {
     id: "socialInstagram",
     title: "What's your Instagram?",
-    subtitle: "Handle or profile link — skip if you don't use Instagram.",
+    subtitle: "Handle or profile link. Skip if you don't use Instagram.",
     xp: 10,
     optional: true,
     placeholder: "@yourhandle",
   },
   {
+    id: "socialFacebook",
+    title: "What's your Facebook?",
+    subtitle: "Handle or profile link. Skip if you don't use Facebook.",
+    xp: 10,
+    optional: true,
+    placeholder: "your.page",
+  },
+  {
     id: "socialYoutube",
     title: "What's your YouTube?",
-    subtitle: "Handle or channel link — skip if you don't use YouTube.",
+    subtitle: "Handle or channel link. Skip if you don't use YouTube.",
     xp: 10,
     optional: true,
     placeholder: "@yourchannel",
@@ -74,7 +83,7 @@ const CORE: OnboardingStep[] = [
   {
     id: "socialX",
     title: "What's your X?",
-    subtitle: "Handle or profile link — skip if you don't use X.",
+    subtitle: "Handle or profile link. Skip if you don't use X.",
     xp: 10,
     optional: true,
     placeholder: "@yourhandle",
@@ -92,11 +101,10 @@ const BRAND: OnboardingStep[] = [
   {
     id: "website",
     title: "Got a website?",
-    subtitle: "Optional — skip if you don't have one yet.",
+    subtitle: "Optional. Skip if you don't have one yet.",
     xp: 10,
     optional: true,
     placeholder: "https://yourbrand.com",
-    inputType: "url",
   },
 ];
 
@@ -114,7 +122,7 @@ const INFLUENCER: OnboardingStep[] = [
   {
     id: "location",
     title: "Where are you based?",
-    subtitle: "City or country — helps brands book locally.",
+    subtitle: "City or country. Helps brands book locally.",
     xp: 15,
     placeholder: "Windhoek, Namibia",
   },

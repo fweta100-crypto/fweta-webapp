@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 import { submitClipAction } from "@/app/actions/submissions";
 import { Button } from "@/components/ui/button";
 import { FieldError, FieldSuccess, Input, Label, Select } from "@/components/ui/input";
+import { PLATFORM_LABEL } from "@/lib/social/platforms";
 import { formatMoney } from "@/lib/utils";
 import type { SocialPlatform } from "@/types/enums";
 
@@ -13,10 +14,15 @@ export function SubmitClipForm({
   campaignId,
   platforms,
   remainingBudgetCents,
+  requiredChecks = [],
+  hashtags = [],
 }: {
   campaignId: string;
   platforms: SocialPlatform[];
   remainingBudgetCents?: number;
+  accounts?: { id: string; handle: string; platform: SocialPlatform; isDefault: boolean }[];
+  requiredChecks?: string[];
+  hashtags?: string[];
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +35,7 @@ export function SubmitClipForm({
   }
 
   if (exhausted) {
-    return <p className="text-sm text-muted">Budget exhausted — this campaign is no longer paying.</p>;
+    return <p className="text-sm text-muted">Budget exhausted. This campaign is no longer paying.</p>;
   }
 
   return (
@@ -56,6 +62,16 @@ export function SubmitClipForm({
         });
       }}
     >
+      {hashtags.length > 0 ? (
+        <p className="text-sm text-muted">Include {hashtags.map((tag) => `#${tag.replace(/^#/, "")}`).join(" ")}</p>
+      ) : null}
+      {requiredChecks.length > 0 ? (
+        <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
+          {requiredChecks.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      ) : null}
       <div>
         <Label htmlFor={`url-${campaignId}`}>Post URL</Label>
         <Input
@@ -63,7 +79,7 @@ export function SubmitClipForm({
           name="postUrl"
           type="url"
           required
-          placeholder="https://www.tiktok.com/@you/video/…"
+          placeholder="https://www.facebook.com/reel/… or another post link"
         />
       </div>
       <div>
@@ -71,7 +87,7 @@ export function SubmitClipForm({
         <Select id={`platform-${campaignId}`} name="platform" defaultValue={platforms[0]}>
           {platforms.map((p) => (
             <option key={p} value={p}>
-              {p}
+              {PLATFORM_LABEL[p]}
             </option>
           ))}
         </Select>

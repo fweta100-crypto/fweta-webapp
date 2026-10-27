@@ -1,9 +1,9 @@
 import { format } from "date-fns";
 import { redirect } from "next/navigation";
 
+import { getMyWallet } from "@/app/actions/wallet";
 import { BrandDepositForm } from "@/components/forms/brand-deposit-form";
-import { Card, PageHeader, SectionHeader } from "@/components/ui/card";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { Badge, Card, EmptyState, PageHeader, SectionHeader } from "@/components/ui/card";
 import { getSession } from "@/lib/auth/session";
 import { readStore } from "@/lib/db/store";
 import { formatMoney } from "@/lib/utils";
@@ -14,7 +14,7 @@ export default async function BrandDepositsPage() {
     redirect("/dashboard");
   }
 
-  const store = await readStore();
+  const [store, wallet] = await Promise.all([readStore(), getMyWallet()]);
   const deposits = store.brandDeposits
     .filter((d) => d.brandId === session.id)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -27,62 +27,44 @@ export default async function BrandDepositsPage() {
     <div className="dash-stack">
       <PageHeader
         title="Deposits"
-        description="Fund your wallet by EFT to pay for campaigns and bookings."
+        description="Submit the EFT you sent. An admin confirms it, then your wallet is credited."
       />
 
-      <div className="dash-split">
-        <Card>
-          <h2 className="font-display text-xl tracking-tight">Record a deposit</h2>
-          <p className="mt-1 text-sm text-muted">Tell us how much you sent and the EFT reference.</p>
-          <div className="mt-4">
-            <BrandDepositForm />
-          </div>
-        </Card>
+      <Card className="panel-interactive">
+        <h2 className="font-display text-xl tracking-tight">Submit an EFT</h2>
+        <p className="mt-1.5 text-sm text-muted">
+          Available now: {formatMoney(wallet.availableCents)}. The wallet does not change until an
+          admin confirms the transfer. Manual EFT only.
+        </p>
+        <div className="mt-5">
+          <BrandDepositForm />
+        </div>
+      </Card>
 
-        <Card className="bg-surface">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
-            Wallet balance
-          </p>
-          <p className="mt-2 font-display text-3xl tracking-tight">
-            {formatMoney(wallet?.availableCents ?? 0)}
-          </p>
-          {pendingTotal > 0 ? (
-            <p className="mt-1 text-sm text-muted">
-              + {formatMoney(pendingTotal)} waiting for confirmation
-            </p>
-          ) : null}
-          <ol className="mt-5 space-y-3 border-t border-border/80 pt-4 text-sm">
-            {[
-              "Send an EFT to fweta's bank account.",
-              "Record the amount and reference here.",
-              "An admin confirms it and credits your wallet.",
-            ].map((step, i) => (
-              <li key={step} className="flex gap-3">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-gold-soft text-xs font-semibold text-gold-deep">
-                  {i + 1}
-                </span>
-                <span className="pt-0.5 text-muted">{step}</span>
-              </li>
-            ))}
-          </ol>
-        </Card>
-      </div>
-
-      {deposits.length > 0 ? (
-        <section>
-          <SectionHeader title="History" />
+      <section>
+        <SectionHeader title="History" />
+        {deposits.length === 0 ? (
+          <EmptyState
+            title="No deposits yet"
+            description="Submit your first EFT. It stays pending until an admin confirms it."
+          />
+        ) : (
           <ul className="space-y-2.5">
             {deposits.map((d) => (
-              <li key={d.id} className="list-row">
-                <div className="min-w-0">
-                  <p className="font-display text-xl tracking-tight">{formatMoney(d.amountCents)}</p>
-                  {d.note ? <p className="truncate text-sm text-muted">{d.note}</p> : null}
-                  <p className="mt-1 text-xs text-muted-light">
-                    {format(new Date(d.createdAt), "d MMM yyyy")}
-                    {d.status === "pending" ? " · waiting for an admin" : ""}
+              <li key={d.id} className="list-row items-start">
+                <div>
+                  <p className="font-medium">{formatMoney(d.amountCents)}</p>
+                  <p className="text-sm text-muted">{d.note}</p>
+                  {d.bankReference ? (
+                    <p className="text-xs text-muted">Reference {d.bankReference}</p>
+                  ) : null}
+                  <p className="text-xs text-muted-light">
+                    {new Date(d.createdAt).toLocaleDateString()}
                   </p>
                 </div>
-                <StatusBadge status={d.status} />
+                <Badge tone={d.status === "credited" ? "success" : d.status === "rejected" ? "danger" : "muted"}>
+                  {d.status === "pending" ? "Waiting for confirmation" : d.status}
+                </Badge>
               </li>
             ))}
           </ul>

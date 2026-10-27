@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { ArrowRight, CircleAlert, Eye, EyeOff, LoaderCircle, Lock, Mail } from "lucide-react";
 
@@ -10,18 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { loginAction } from "@/app/actions/auth";
 
-// Only same-origin paths; "//host" and "/\host" are treated as external by browsers.
-function safeNextPath(raw: string | null): string {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
-    return "/dashboard";
-  }
-  return raw;
-}
-
-export function LoginForm() {
+export function LoginForm({ nextPath = "/dashboard" }: { nextPath?: string }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const next = safeNextPath(searchParams.get("next"));
+  const next = nextPath.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/dashboard";
   const [error, setError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -36,7 +27,7 @@ export function LoginForm() {
             Your workspace for campaigns, bookings, and payouts.
           </h2>
           <p className="text-sm leading-relaxed text-white/65">
-            Sign in to manage creator commerce — budgets, submissions, escrow, and EFT withdrawals
+            Sign in to manage creator commerce: budgets, submissions, escrow, and EFT withdrawals
             in one place.
           </p>
         </div>

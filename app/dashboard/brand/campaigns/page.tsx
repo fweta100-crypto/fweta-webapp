@@ -7,7 +7,7 @@ import { listBrandSubmissions } from "@/app/actions/submissions";
 import { Badge, EmptyState, PageHeader } from "@/components/ui/card";
 import { BudgetBar } from "@/components/ui/budget-bar";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { campaignClipperVisibility } from "@/lib/campaigns/visibility";
 import { getSession } from "@/lib/auth/session";
 import { formatMoney } from "@/lib/utils";
 
@@ -27,7 +27,7 @@ export default async function BrandCampaignsPage() {
     <div className="dash-stack">
       <PageHeader
         title="Campaigns"
-        description="Manage content rewards campaigns and budgets."
+        description="Clippers only see a campaign after you publish it. Drafts stay on this list and stay hidden."
         action={
           <div className="flex flex-wrap gap-2">
             {pendingTotal ? (
@@ -58,30 +58,21 @@ export default async function BrandCampaignsPage() {
       ) : (
         <ul className="space-y-2.5">
           {campaigns.map((c) => {
-            const pending = submissions.filter(
-              (s) => s.campaignId === c.id && s.status === "pending",
-            ).length;
+            const visibility = campaignClipperVisibility(c.status);
             return (
-              <li key={c.id}>
-                <Link href={`/dashboard/brand/campaigns/${c.id}`} className="list-row">
-                  <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate font-medium">{c.title}</p>
-                        <StatusBadge status={c.status} />
-                      </div>
-                      <p className="mt-1 text-sm text-muted">
-                        {c.type === "ugc" ? "UGC" : "Clipping"} · {c.category} ·{" "}
-                        {formatMoney(c.cpmCents)} CPM
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-4 sm:w-72">
-                      <BudgetBar spentCents={c.budgetSpentCents} totalCents={c.budgetTotalCents} />
-                      {pending ? <Badge tone="gold">{pending} to review</Badge> : null}
-                    </div>
-                  </div>
-                </Link>
-              </li>
+            <li key={c.id}>
+              <Link href={`/dashboard/brand/campaigns/${c.id}`} className="list-row items-start">
+                <div>
+                  <p className="font-medium">{c.title}</p>
+                  <p className="mt-1 text-sm text-muted">
+                    {c.type} · {c.category} · {formatMoney(c.budgetSpentCents)} /{" "}
+                    {formatMoney(c.budgetTotalCents)}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">{visibility.label}</p>
+                </div>
+                <Badge tone={visibility.visible ? "gold" : "muted"}>{c.status}</Badge>
+              </Link>
+            </li>
             );
           })}
         </ul>

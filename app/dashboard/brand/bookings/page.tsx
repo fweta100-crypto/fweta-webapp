@@ -27,35 +27,22 @@ export default async function BrandBookingsPage() {
         title="Bookings"
         description="Influencer collaborations and escrow payments."
         action={
-          <div className="flex flex-wrap gap-2">
-            <Link href="/dashboard/brand/deals/new">
-              <Button size="sm">Private offer</Button>
-            </Link>
-            <Link href="/influencers">
-              <Button size="sm" variant="secondary">
-                Browse influencers
-              </Button>
-            </Link>
-          </div>
+          <Link href="/dashboard/brand/creators">
+            <Button size="sm" variant="secondary">
+              Find creators
+            </Button>
+          </Link>
         }
       />
 
       {bookings.length === 0 ? (
         <EmptyState
-          icon={Handshake}
-          title="No bookings yet"
-          description="Browse influencers to request a collaboration."
+          title="No bookings"
+          description="Open the creator list to request a collaboration."
           action={
-            <div className="flex flex-wrap gap-2">
-              <Link href="/dashboard/brand/deals/new">
-                <Button size="sm">Private offer</Button>
-              </Link>
-              <Link href="/influencers">
-                <Button size="sm" variant="secondary">
-                  Browse influencers
-                </Button>
-              </Link>
-            </div>
+            <Link href="/dashboard/brand/creators">
+              <Button size="sm">Find creators</Button>
+            </Link>
           }
         />
       ) : (
@@ -70,24 +57,21 @@ export default async function BrandBookingsPage() {
               <li key={b.id} className="list-row">
                 <div className="w-full space-y-3">
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {profile?.published ? (
-                          <Link
-                            href={`/influencers/${profile.slug}`}
-                            className="font-medium hover:underline"
-                          >
-                            {profile.displayName}
-                          </Link>
-                        ) : (
-                          <p className="font-medium">{profile?.displayName ?? "Influencer"}</p>
-                        )}
-                        <StatusBadge status={b.status} />
-                      </div>
-                      <p className="mt-0.5 text-xs text-muted">
-                        {isPrivate ? "Private offer" : (rate?.title ?? "Rate card item")} ·{" "}
-                        {format(new Date(b.createdAt), "d MMM yyyy")}
-                      </p>
+                    <div>
+                      <p className="font-medium">{profile?.displayName ?? "Influencer"}</p>
+                      <p className="text-sm text-muted">{rate?.title ?? "Rate card item"}</p>
+                      <p className="mt-1 text-sm">{formatMoney(b.amountCents)}</p>
+                      {b.brief ? <p className="mt-2 text-sm text-muted">{b.brief}</p> : null}
+                      {b.deliverableUrl ? (
+                        <a
+                          href={b.deliverableUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 block text-sm text-gold-deep hover:underline"
+                        >
+                          View deliverable
+                        </a>
+                      ) : null}
                     </div>
                     <p className="font-display text-xl tracking-tight">{formatMoney(b.amountCents)}</p>
                   </div>

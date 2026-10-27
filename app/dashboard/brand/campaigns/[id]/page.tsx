@@ -3,15 +3,26 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { getCampaign } from "@/app/actions/campaigns";
-import { CampaignRefreshButton } from "@/components/forms/campaign-refresh-button";
+import { PlatformChip } from "@/components/platforms/platform-chip";
+import { PostingGuide } from "@/components/platforms/posting-guide";
 import { CampaignStatusButtons } from "@/components/forms/campaign-status-buttons";
+import { ContextHelp } from "@/components/onboarding/context-help";
+import { BudgetBar } from "@/components/rewards/budget-bar";
+import { Leaderboard } from "@/components/rewards/leaderboard";
 import { Badge, Card, PageHeader, Stat, StatGrid } from "@/components/ui/card";
 import { BudgetBar } from "@/components/ui/budget-bar";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { getSession } from "@/lib/auth/session";
 import { readStore } from "@/lib/db/store";
-import { formatMoney } from "@/lib/utils";
+import { canEditCampaign, canViewCampaign } from "@/lib/onboarding/access";
+import {
+  campaignIsDiscoverable,
+  campaignLeaderboard,
+  readyForReview,
+  remainingBudgetCents,
+} from "@/lib/rewards/content-rewards";
+import { formatMoney, formatNumber } from "@/lib/utils";
 
 export default async function CampaignDetailPage({
   params,
@@ -26,9 +37,14 @@ export default async function CampaignDetailPage({
 
   const campaign = await getCampaign(id);
   if (!campaign) notFound();
-  if (campaign.brandId !== session.id && !session.roles.includes("admin")) {
+  const store = await readStore();
+  if (!canViewCampaign(store, session, campaign)) {
     redirect("/dashboard/brand/campaigns");
   }
+  const canEdit = canEditCampaign(store, session, campaign);
+  const submissions = store.submissions.filter((s) => s.campaignId === campaign.id);
+  const pendingReady = submissions.filter((s) => readyForReview(s, campaign)).length;
+  const views = submissions.reduce((sum, s) => sum + s.views, 0);
 
   const store = await readStore();
   const clips = store.submissions.filter((s) => s.campaignId === campaign.id);
@@ -42,76 +58,123 @@ export default async function CampaignDetailPage({
         description={campaign.description}
         action={
           <div className="flex flex-wrap gap-2">
+            {campaignIsDiscoverable(campaign) ? (
+              <Link href={`/campaigns/${id}`}>
+                <Button variant="secondary" size="sm">
+                  Public page
+                </Button>
+              </Link>
+            ) : null}
             <Link href={`/dashboard/brand/campaigns/${id}/edit`}>
               <Button variant="secondary" size="sm">
                 Edit
               </Button>
             </Link>
             <Link href={`/dashboard/brand/campaigns/${id}/submissions`}>
-              <Button size="sm">Review clips{pendingCount ? ` (${pendingCount})` : ""}</Button>
+              <Button size="sm">
+                Review{pendingReady > 0 ? ` (${pendingReady})` : ""}
+              </Button>
             </Link>
           </div>
         }
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge status={campaign.status} />
-        <Badge>{campaign.type === "ugc" ? "UGC" : "Clipping"}</Badge>
+        <Badge tone={campaign.status === "active" ? "gold" : "muted"}>{campaign.status}</Badge>
+        <Badge>{campaign.type === "clipping" ? "Clipping" : "UGC"}</Badge>
         <Badge tone="neutral">{campaign.category}</Badge>
         {campaign.endDate ? (
           <Badge tone="muted">Ends {format(new Date(campaign.endDate), "d MMM yyyy")}</Badge>
         ) : null}
       </div>
 
-      <Card>
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">
-              Budget
-            </p>
-            <p className="mt-2 font-display text-3xl tracking-tight">
-              {formatMoney(Math.max(0, campaign.budgetTotalCents - campaign.budgetSpentCents))}
-              <span className="ml-2 text-sm font-sans text-muted">left</span>
-            </p>
-          </div>
-        </div>
-        <BudgetBar
-          className="mt-4"
-          spentCents={campaign.budgetSpentCents}
-          totalCents={campaign.budgetTotalCents}
+      {campaign.status === "draft" ? (
+        <ContextHelp
+          title="Going live spends the wallet"
+          body="Activate this draft once an admin has confirmed your transfer and the wallet covers the budget. Creators can submit as soon as it is live."
+          hint="Pause stops new submissions. Mark completed when the campaign should close."
         />
-        <div className="mt-5 flex flex-wrap items-start gap-3 border-t border-border/80 pt-4">
-          <CampaignStatusButtons campaignId={campaign.id} status={campaign.status} />
-          {campaign.status === "active" ? <CampaignRefreshButton campaignId={campaign.id} /> : null}
-        </div>
-        {campaign.status === "active" ? (
-          <p className="mt-2 text-xs text-muted">Earnings also update automatically once a day.</p>
-        ) : null}
+      ) : (
+        <ContextHelp
+          title="Review clips as they arrive"
+          body="Open submissions to approve or reject the first clips. Approved clips earn after an admin records views."
+        />
+      )}
+
+      {canEdit ? <CampaignStatusButtons campaignId={campaign.id} status={campaign.status} /> : (
+        <p className="text-sm text-muted">You can view this brand. Managers and the owner can change the campaign.</p>
+      )}
+
+      <Card>
+        <BudgetBar campaign={campaign} />
+        <p className="mt-2 text-xs text-muted">
+          {formatMoney(remainingBudgetCents(campaign))} still available for verified views.
+        </p>
       </Card>
 
       <StatGrid>
-        <Stat label="CPM" value={formatMoney(campaign.cpmCents)} hint="Paid per 1,000 views" />
-        <Stat label="Max per video" value={formatMoney(campaign.maxPayoutPerSubmissionCents)} />
+        <Stat label="Per 1,000 views" value={formatMoney(campaign.cpmCents)} />
+        <Stat label="Max per post" value={formatMoney(campaign.maxPayoutPerSubmissionCents)} />
         <Stat
-          label="Clips"
-          value={String(clips.length)}
-          hint={`${approvedCount} approved · ${pendingCount} to review`}
+          label="Minimum to review"
+          value={campaign.minPayoutCents > 0 ? formatMoney(campaign.minPayoutCents) : "None"}
         />
-        <Stat
-          label="Platforms"
-          value={String(campaign.platforms.length)}
-          hint={campaign.platforms.map((p) => (p === "x" ? "X" : p[0].toUpperCase() + p.slice(1))).join(", ")}
-        />
+        <Stat label="View floor" value={String(campaign.minViews)} />
+        <Stat label={campaign.payModel === "pool" ? "Pot" : "Clipper rate"} value={campaign.payModel === "pool" ? formatMoney(campaign.budgetTotalCents) : formatMoney(campaign.cpmCents)} />
+        <Stat label="Verified views" value={formatNumber(views)} />
       </StatGrid>
 
+      <Card>
+        <h2 className="font-display text-xl tracking-tight">Platforms</h2>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {campaign.platforms.map((platform) => (
+            <PlatformChip key={platform} platform={platform} />
+          ))}
+        </div>
+        <div className="mt-4">
+          <PostingGuide platforms={campaign.platforms} />
+        </div>
+        <p className="mt-2 text-xs text-muted">
+          {campaign.startDate ? `Starts ${campaign.startDate.slice(0, 10)}. ` : ""}
+          {campaign.endDate ? `Ends ${campaign.endDate.slice(0, 10)}.` : "No end date."}
+        </p>
+      </Card>
+
       {campaign.requirements ? (
-        <Card className="panel-interactive">
-          <h2 className="font-display text-xl tracking-tight">Requirements</h2>
+        <Card>
+          <h2 className="font-display text-xl tracking-tight">Brief</h2>
           <p className="mt-2.5 whitespace-pre-wrap text-sm leading-relaxed text-muted">
             {campaign.requirements}
           </p>
         </Card>
       ) : null}
+
+      {campaign.rules ? (
+        <Card>
+          <h2 className="font-display text-xl tracking-tight">Rules</h2>
+          <p className="mt-2.5 whitespace-pre-wrap text-sm leading-relaxed text-muted">{campaign.rules}</p>
+        </Card>
+      ) : null}
+
+      {campaign.assets.length > 0 ? (
+        <Card>
+          <h2 className="font-display text-xl tracking-tight">References</h2>
+          <ul className="mt-3 space-y-2">
+            {campaign.assets.map((asset) => (
+              <li key={asset.id}>
+                <a href={asset.url} className="text-sm text-gold-deep hover:underline" target="_blank" rel="noreferrer">
+                  {asset.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
+      <section>
+        <h2 className="mb-3 font-display text-2xl tracking-tight">Leaderboard</h2>
+        <Leaderboard rows={campaignLeaderboard(store, campaign.id)} />
+      </section>
     </div>
   );
 }
