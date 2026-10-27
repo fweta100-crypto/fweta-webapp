@@ -7,18 +7,14 @@ import { RecordViewsForm } from "@/components/forms/record-views-form";
 import { SubmissionReviewForm } from "@/components/forms/submission-review-form";
 import { Badge, EmptyState, PageHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/ui/card";
 import { getSession } from "@/lib/auth/session";
 import { readStore } from "@/lib/db/store";
-import { parseSubmissionFilters } from "@/lib/submissions/filter";
-import { formatMoney } from "@/lib/utils";
+import { formatMoney, formatNumber } from "@/lib/utils";
 
 export default async function CampaignSubmissionsPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
   const session = await getSession();
@@ -32,21 +28,10 @@ export default async function CampaignSubmissionsPage({
     redirect("/dashboard/brand/campaigns");
   }
 
-  const raw = await searchParams;
-  const flat = Object.fromEntries(
-    Object.entries(raw).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v]),
-  );
-  const filters = parseSubmissionFilters(flat, { campaignId: id, status: "pending" });
-
-  const [allSubmissions, campaigns, store] = await Promise.all([
-    listBrandSubmissions(),
-    listBrandCampaigns(),
+  const [submissions, store] = await Promise.all([
+    listCampaignSubmissions(id),
     readStore(),
   ]);
-
-  const paidOnCampaign = allSubmissions
-    .filter((s) => s.campaignId === id)
-    .reduce((sum, s) => sum + s.earningsCents, 0);
 
   return (
     <div className="dash-stack">
@@ -56,7 +41,7 @@ export default async function CampaignSubmissionsPage({
         action={
           <Link href={`/dashboard/brand/campaigns/${id}`}>
             <Button size="sm" variant="secondary">
-              ← Campaign
+              ← Back to campaign
             </Button>
           </Link>
         }

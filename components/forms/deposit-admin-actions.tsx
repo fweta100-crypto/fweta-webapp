@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
-import { creditBrandDepositAction, rejectBrandDepositAction } from "@/app/actions/wallet";
+import { confirmBrandDepositAction, rejectBrandDepositAction } from "@/app/actions/wallet";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/input";
 
@@ -21,7 +21,7 @@ export function DepositAdminActions({ depositId }: { depositId: string }) {
         onClick={() =>
           startTransition(async () => {
             setError(null);
-            const res = await creditBrandDepositAction(depositId);
+            const res = await confirmBrandDepositAction(depositId);
             if (!res.ok) setError(res.error);
             else router.refresh();
           })

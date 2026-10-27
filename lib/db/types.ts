@@ -199,6 +199,8 @@ export type Campaign = {
   workspaceId?: string | null;
   /** Set when unused budget has been returned. Further view credits stop. */
   settledAt?: string | null;
+  /** Last time the brand refreshed view counts. Used for the refresh cooldown. */
+  viewsRefreshedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };

@@ -1,4 +1,3 @@
-import { Check, Handshake, Megaphone } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -7,10 +6,14 @@ import { listBrandBookings } from "@/app/actions/bookings";
 import { getMyWallet } from "@/app/actions/wallet";
 import { PlatformChip } from "@/components/platforms/platform-chip";
 import { Button } from "@/components/ui/button";
-import { Card, EmptyState, PageHeader, SectionHeader, Stat, StatGrid } from "@/components/ui/card";
-import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  EmptyState,
+  PageHeader,
+  SectionHeader,
+  Stat,
+  StatGrid,
+} from "@/components/ui/card";
 import { getSession } from "@/lib/auth/session";
-import { bookingKind } from "@/lib/bookings/kind";
 import { formatMoney } from "@/lib/utils";
 import { readStore } from "@/lib/db/store";
 
@@ -32,75 +35,21 @@ export default async function BrandDashboardPage() {
   const pendingSubs = store.submissions.filter((s) =>
     campaigns.some((c) => c.id === s.campaignId && s.status === "pending"),
   ).length;
-  const awaitingApproval = bookings.filter((b) => b.status === "delivered").length;
-  const depositsPending = store.brandDeposits.filter(
-    (d) => d.brandId === session.id && d.status === "pending",
-  ).length;
-  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
-  const todos: { label: string; href: string; cta: string }[] = [];
-  if (pendingSubs > 0) {
-    todos.push({
-      label: `${plural(pendingSubs, "clip is", "clips are")} waiting for your review`,
-      href: "/dashboard/brand/submissions",
-      cta: "Review",
-    });
-  }
-  if (awaitingApproval > 0) {
-    todos.push({
-      label: `${plural(awaitingApproval, "booking was", "bookings were")} delivered — approve or request changes`,
-      href: "/dashboard/brand/bookings",
-      cta: "Open",
-    });
-  }
-  if (depositsPending > 0) {
-    todos.push({
-      label: `${plural(depositsPending, "deposit is", "deposits are")} waiting for an admin to credit`,
-      href: "/dashboard/brand/deposits",
-      cta: "View",
-    });
-  }
-  const isNew = campaigns.length === 0 && bookings.length === 0;
-  const hasFunds = wallet.availableCents > 0;
-  const steps = [
-    {
-      title: "Fund your wallet",
-      body: depositsPending
-        ? "Deposit recorded — waiting for an admin to credit it."
-        : "Send an EFT and record it so an admin can credit your wallet.",
-      href: "/dashboard/brand/deposits",
-      cta: "Record deposit",
-      done: hasFunds,
-    },
-    {
-      title: "Launch a campaign",
-      body: "Set a budget and pay-per-view rate. Creators clip and post your content.",
-      href: "/dashboard/brand/campaigns/new",
-      cta: "New campaign",
-      done: false,
-    },
-    {
-      title: "Or hire an influencer",
-      body: "Book from a rate card or send a private offer for a sponsored post.",
-      href: "/influencers",
-      cta: "Browse influencers",
-      done: false,
-    },
-  ];
 
   return (
     <div className="dash-stack">
       <PageHeader
         title="Brand overview"
-        description={
-          isNew
-            ? "Welcome to fweta. Three steps to your first campaign."
-            : "Your campaigns, clips, and bookings at a glance."
-        }
+        description="Campaign spend, submission queue, and influencer bookings."
         action={
-          <Link href="/dashboard/brand/campaigns/new">
-            <Button size="sm">New campaign</Button>
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/dashboard/brand/deposits">
+              <Button variant="secondary">Deposits</Button>
+            </Link>
+            <Link href="/dashboard/brand/campaigns/new">
+              <Button>New campaign</Button>
+            </Link>
+          </div>
         }
       />
 
@@ -142,31 +91,12 @@ export default async function BrandDashboardPage() {
                     </div>
                     <span className="shrink-0 text-xs capitalize text-muted">{c.type}</span>
                   </Link>
-                )}
-              </li>
-            ))}
-          </ol>
-        </Card>
-      ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
-      {isNew ? null : (
-        <StatGrid>
-          <Stat label="Active campaigns" value={String(active)} />
-          <Stat label="Budget spent" value={formatMoney(spent)} />
-          <Stat label="Pending reviews" value={String(pendingSubs)} />
-          <Stat
-            label="Wallet"
-            value={formatMoney(wallet.availableCents)}
-            hint={
-              wallet.pendingCents > 0
-                ? `${formatMoney(wallet.pendingCents)} held for bookings`
-                : "Available to spend"
-            }
-          />
-        </StatGrid>
-      )}
-
-      {todos.length > 0 ? (
         <section>
           <SectionHeader title="Bookings" href="/dashboard/brand/creators" linkLabel="Find creators" />
           {bookings.length === 0 ? (
@@ -189,89 +119,12 @@ export default async function BrandDashboardPage() {
                     <p className="text-sm font-medium capitalize">{b.status.replace(/_/g, " ")}</p>
                     <p className="text-xs text-muted">{formatMoney(b.amountCents)}</p>
                   </div>
-                  <span className="shrink-0 text-xs text-gold-deep">{t.cta} →</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
-      ) : null}
-
-      {isNew ? null : (
-        <div className="dash-split">
-          <section>
-            <SectionHeader title="Recent campaigns" href="/dashboard/brand/campaigns" />
-            {campaigns.length === 0 ? (
-              <EmptyState
-                icon={Megaphone}
-                title="No campaigns yet"
-                description="Launch a clipping or UGC campaign and invite creators to distribute for you."
-                action={
-                  <Link href="/dashboard/brand/campaigns/new">
-                    <Button size="sm">Create campaign</Button>
-                  </Link>
-                }
-              />
-            ) : (
-              <ul className="space-y-2.5">
-                {campaigns.slice(0, 5).map((c) => (
-                  <li key={c.id}>
-                    <Link href={`/dashboard/brand/campaigns/${c.id}`} className="list-row">
-                      <div className="min-w-0 flex-1 space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="truncate text-sm font-medium">{c.title}</p>
-                          <StatusBadge status={c.status} />
-                        </div>
-                        <BudgetBar spentCents={c.budgetSpentCents} totalCents={c.budgetTotalCents} />
-                      </div>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          <section>
-            <SectionHeader title="Bookings" href="/dashboard/brand/bookings" linkLabel="All bookings →" />
-            {bookings.length === 0 ? (
-              <EmptyState
-                icon={Handshake}
-                title="No bookings yet"
-                description="Hire influencers at their listed rates for trusted sponsored posts."
-                action={
-                  <Link href="/influencers">
-                    <Button size="sm" variant="secondary">
-                      Browse influencers
-                    </Button>
-                  </Link>
-                }
-              />
-            ) : (
-              <ul className="space-y-2.5">
-                {bookings.slice(0, 5).map((b) => {
-                  const influencer = store.influencerProfiles.find(
-                    (p) => p.id === b.influencerProfileId,
-                  );
-                  return (
-                    <li key={b.id}>
-                      <Link href="/dashboard/brand/bookings" className="list-row">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium">
-                            {influencer?.displayName ?? "Influencer"}
-                            {bookingKind(b) === "private" ? " · Private offer" : ""}
-                          </p>
-                          <p className="text-xs text-muted">{formatMoney(b.amountCents)}</p>
-                        </div>
-                        <StatusBadge status={b.status} />
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

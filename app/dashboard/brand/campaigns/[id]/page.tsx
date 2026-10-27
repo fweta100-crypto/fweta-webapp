@@ -1,4 +1,3 @@
-import { format } from "date-fns";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
@@ -10,9 +9,7 @@ import { ContextHelp } from "@/components/onboarding/context-help";
 import { BudgetBar } from "@/components/rewards/budget-bar";
 import { Leaderboard } from "@/components/rewards/leaderboard";
 import { Badge, Card, PageHeader, Stat, StatGrid } from "@/components/ui/card";
-import { BudgetBar } from "@/components/ui/budget-bar";
 import { Button } from "@/components/ui/button";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { getSession } from "@/lib/auth/session";
 import { readStore } from "@/lib/db/store";
 import { canEditCampaign, canViewCampaign } from "@/lib/onboarding/access";
@@ -46,11 +43,6 @@ export default async function CampaignDetailPage({
   const pendingReady = submissions.filter((s) => readyForReview(s, campaign)).length;
   const views = submissions.reduce((sum, s) => sum + s.views, 0);
 
-  const store = await readStore();
-  const clips = store.submissions.filter((s) => s.campaignId === campaign.id);
-  const pendingCount = clips.filter((s) => s.status === "pending").length;
-  const approvedCount = clips.filter((s) => s.status === "approved").length;
-
   return (
     <div className="dash-stack">
       <PageHeader
@@ -83,9 +75,6 @@ export default async function CampaignDetailPage({
         <Badge tone={campaign.status === "active" ? "gold" : "muted"}>{campaign.status}</Badge>
         <Badge>{campaign.type === "clipping" ? "Clipping" : "UGC"}</Badge>
         <Badge tone="neutral">{campaign.category}</Badge>
-        {campaign.endDate ? (
-          <Badge tone="muted">Ends {format(new Date(campaign.endDate), "d MMM yyyy")}</Badge>
-        ) : null}
       </div>
 
       {campaign.status === "draft" ? (

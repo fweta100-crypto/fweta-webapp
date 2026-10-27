@@ -238,6 +238,20 @@ export async function listClipperSubmissions() {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+export async function listBrandSubmissions() {
+  const session = await requireSession();
+  if (!session.roles.includes("brand") && !session.roles.includes("admin")) return [];
+  const store = await readStore();
+  const campaignIds = new Set(
+    store.campaigns
+      .filter((c) => (session.roles.includes("admin") ? true : c.brandId === session.id))
+      .map((c) => c.id),
+  );
+  return store.submissions
+    .filter((s) => campaignIds.has(s.campaignId))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 export async function listCampaignSubmissions(campaignId: string) {
   const session = await requireSession();
   const store = await readStore();

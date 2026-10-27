@@ -1,4 +1,3 @@
-import { format } from "date-fns";
 import { redirect } from "next/navigation";
 
 import { getMyWallet } from "@/app/actions/wallet";
@@ -18,10 +17,6 @@ export default async function BrandDepositsPage() {
   const deposits = store.brandDeposits
     .filter((d) => d.brandId === session.id)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const wallet = store.wallets.find((w) => w.userId === session.id);
-  const pendingTotal = deposits
-    .filter((d) => d.status === "pending")
-    .reduce((sum, d) => sum + d.amountCents, 0);
 
   return (
     <div className="dash-stack">
@@ -68,8 +63,8 @@ export default async function BrandDepositsPage() {
               </li>
             ))}
           </ul>
-        </section>
-      ) : null}
+        )}
+      </section>
     </div>
   );
 }

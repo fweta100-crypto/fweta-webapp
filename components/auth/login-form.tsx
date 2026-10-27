@@ -10,7 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { loginAction } from "@/app/actions/auth";
 
-export function LoginForm({ nextPath = "/dashboard" }: { nextPath?: string }) {
+export function LoginForm({
+  nextPath = "/dashboard",
+  email = "",
+}: {
+  nextPath?: string;
+  email?: string;
+}) {
   const router = useRouter();
   const next = nextPath.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/dashboard";
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +98,7 @@ export function LoginForm({ nextPath = "/dashboard" }: { nextPath?: string }) {
                   type="email"
                   required
                   autoFocus
-                  defaultValue={searchParams.get("email") ?? undefined}
+                  defaultValue={email || undefined}
                   placeholder="you@brand.co"
                   autoComplete="email"
                   className="has-leading-icon"

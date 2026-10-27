@@ -367,7 +367,7 @@ export async function loadAdminUserDossier(userId: string): Promise<AdminUserDos
         ...b,
         side: asBrand && asInfluencer ? "both" : asBrand ? "brand" : "influencer",
         counterpartyName: nameById.get(counterpartyId) ?? null,
-        rateTitle: rateTitle.get(b.rateCardItemId) ?? null,
+        rateTitle: b.rateCardItemId ? (rateTitle.get(b.rateCardItemId) ?? null) : null,
       };
     });
 

@@ -113,7 +113,7 @@ export async function signup(input: {
   displayName?: string;
   roles: UserRole[];
   referralCode?: string;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+}): Promise<{ ok: true } | { ok: false; error: string; code?: "email_taken" }> {
   const email = input.email.trim().toLowerCase();
   if (!email || input.password.length < 8) {
     return { ok: false, error: "Valid email and password (8+ chars) required." };

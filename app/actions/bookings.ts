@@ -10,7 +10,7 @@ import {
   notifyBookingDeclined,
   notifyBookingRequested,
 } from "@/lib/notifications/events";
-import type { Booking } from "@/lib/db/types";
+import type { Booking, InfluencerProfile } from "@/lib/db/types";
 import { applyWalletDelta } from "@/lib/wallet/ledger";
 import { bookingSchema, privateDealSchema } from "@/lib/validations/booking";
 import { formatMoney } from "@/lib/utils";
