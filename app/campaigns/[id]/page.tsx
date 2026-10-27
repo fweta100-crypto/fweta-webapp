@@ -18,6 +18,7 @@ import { accountsForUser } from "@/lib/onboarding/accounts";
 import {
   ABUSE_RULES,
   audienceLabel,
+  campaignEnded,
   campaignIsDiscoverable,
   campaignLeaderboard,
   remainingBudgetCents,
@@ -31,7 +32,18 @@ export default async function PublicCampaignPage({
 }) {
   const { id } = await params;
   const campaign = await getCampaign(id);
-  if (!campaign || !campaignIsDiscoverable(campaign)) notFound();
+  // Drafts were never shared. A closed or paused campaign still has a public link.
+  if (!campaign || campaign.status === "draft" || campaign.status === "pending") notFound();
+  const open = campaignIsDiscoverable(campaign);
+  const closedNote = open
+    ? null
+    : campaign.status === "paused"
+      ? "This campaign is paused. New clips are not being accepted."
+      : campaignEnded(campaign)
+        ? "This campaign has ended. New clips are not being accepted."
+        : remainingBudgetCents(campaign) <= 0
+          ? "This campaign's budget is used up. New clips are not being accepted."
+          : "This campaign is not open for new clips.";
 
   const session = await getSession();
   const store = await readStore();
@@ -67,6 +79,7 @@ export default async function PublicCampaignPage({
         <div className="mt-6 flex flex-wrap gap-2">
           <Badge tone="gold">{campaign.type === "clipping" ? "Clipping" : "UGC"}</Badge>
           <Badge>{campaign.category}</Badge>
+          {closedNote ? <Badge tone="muted">{campaign.status === "paused" ? "Paused" : "Closed"}</Badge> : null}
           {campaign.platforms.map((platform) => (
             <PlatformChip key={platform} platform={platform} />
           ))}
@@ -202,7 +215,12 @@ export default async function PublicCampaignPage({
         </Card>
 
         <div className="mt-8">
-          {canSubmit ? (
+          {closedNote ? (
+            <Card>
+              <h2 className="font-display text-xl">Submissions are closed</h2>
+              <p className="mt-2 text-sm text-muted">{closedNote}</p>
+            </Card>
+          ) : canSubmit ? (
             <Card>
               <h2 className="font-display text-xl">Submit a clip</h2>
               <p className="mt-2 text-sm text-muted">
