@@ -229,32 +229,8 @@ async function saveRelationalStore(store: DatabaseStore): Promise<boolean> {
   }
 }
 
-function mergeMissingProfiles(local: DatabaseStore, remote: DatabaseStore): DatabaseStore {
-  const emails = new Set(local.profiles.map((p) => (p.email || "").trim().toLowerCase()));
-  const extra = remote.profiles.filter((p) => p.email && !emails.has(p.email.trim().toLowerCase()));
-  if (extra.length === 0) return local;
-  const extraIds = new Set(extra.map((p) => p.id));
-  const walletIds = new Set(local.wallets.map((w) => w.userId));
-  return {
-    ...local,
-    profiles: [...local.profiles, ...extra],
-    wallets: [
-      ...local.wallets,
-      ...remote.wallets.filter((w) => extraIds.has(w.userId) && !walletIds.has(w.userId)),
-    ],
-  };
-}
-
 export async function loadStoreFromSupabase(): Promise<DatabaseStore | null> {
   try {
-    // JSON blob is the full store. Reading fweta_* tables first drops
-    // fields those tables don't have, and would hide accounts that only
-    // exist inside the blob.
-    const jsonBlob = await loadJsonBlob();
-    if (jsonBlob && hasData(jsonBlob)) {
-      return jsonBlob;
-    }
-
     const relational = await loadRelationalStore();
     const jsonBlob = await loadJsonBlob();
     if (!jsonBlob.ok && !relational) {

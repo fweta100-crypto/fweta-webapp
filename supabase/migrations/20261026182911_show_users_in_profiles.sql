@@ -1,21 +1,6 @@
--- The app's source of truth is the JSON row in fweta_app_store.
--- fweta_load_store must return that blob. Building the store from
--- fweta_* tables drops fields the blob has, and a non-empty
--- fweta_profiles row would make older servers ignore the blob.
--- fweta_profiles is a mirror so accounts show up in the table editor.
-
-create or replace function public.fweta_load_store()
-returns jsonb
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select coalesce(
-    (select data from public.fweta_app_store where id = 'default'),
-    '{}'::jsonb
-  );
-$$;
+-- Mirror accounts from the JSON store into fweta_profiles so they show in the
+-- table editor. Does not replace fweta_load_store; that function stays the
+-- relational snapshot from the later schema migrations.
 
 create or replace function public.fweta_sync_profiles_from_store()
 returns trigger
@@ -31,7 +16,9 @@ begin
   delete from public.fweta_profiles;
   insert into public.fweta_profiles (
     id, email, password_hash, display_name, bio, avatar_url, roles, primary_role,
-    notify_email, notify_withdrawals, notify_bookings, suspended, created_at, updated_at
+    notify_email, notify_withdrawals, notify_bookings, suspended, created_at, updated_at,
+    first_name, last_name, phone, company_name, website, niche, location,
+    primary_platform, socials, onboarding_completed_at
   )
   select
     (p->>'id')::uuid,
@@ -53,7 +40,20 @@ begin
     coalesce((p->>'notifyBookings')::boolean, true),
     coalesce((p->>'suspended')::boolean, false),
     coalesce(nullif(p->>'createdAt', '')::timestamptz, now()),
-    coalesce(nullif(p->>'updatedAt', '')::timestamptz, now())
+    coalesce(nullif(p->>'updatedAt', '')::timestamptz, now()),
+    nullif(p->>'firstName', ''),
+    nullif(p->>'lastName', ''),
+    nullif(p->>'phone', ''),
+    nullif(p->>'companyName', ''),
+    nullif(p->>'website', ''),
+    nullif(p->>'niche', ''),
+    nullif(p->>'location', ''),
+    nullif(p->>'primaryPlatform', ''),
+    coalesce(p->'socials', '{}'::jsonb),
+    case
+      when coalesce(p->>'onboardingCompletedAt', '') in ('', 'seeded') then null
+      else (p->>'onboardingCompletedAt')::timestamptz
+    end
   from jsonb_array_elements(coalesce(new.data->'profiles', '[]'::jsonb)) p
   where p->>'id' is not null
     and p->>'email' is not null
