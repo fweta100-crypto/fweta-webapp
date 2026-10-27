@@ -274,22 +274,75 @@ export async function brandDepositAction(amountCents: number, note?: string) {
         brandId: session.id,
         amountCents,
         note: note || "Manual deposit (v1)",
-        status: "credited",
+        status: "pending",
         createdAt: nowIso(),
-      });
-      applyWalletDelta(s, {
-        userId: session.id,
-        availableDelta: amountCents,
-        type: "credit",
-        reason: note || "Brand deposit (manual)",
-        referenceType: "brand_deposit",
-        referenceId: id,
       });
     });
   } catch (e) {
     return { ok: false as const, error: e instanceof Error ? e.message : "Failed." };
   }
 
+  revalidatePath("/dashboard/brand/deposits");
+  revalidatePath("/dashboard/admin/deposits");
+  return { ok: true as const };
+}
+
+export async function listDepositsAdmin() {
+  const session = await requireSession();
+  if (!session.roles.includes("admin")) return [];
+  const store = await readStore();
+  return store.brandDeposits.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function creditBrandDepositAction(id: string) {
+  const session = await requireSession();
+  if (!session.roles.includes("admin")) return { ok: false as const, error: "Admin only." };
+
+  const store = await readStore();
+  const deposit = store.brandDeposits.find((d) => d.id === id);
+  if (!deposit || deposit.status !== "pending") {
+    return { ok: false as const, error: "Deposit is not waiting for review." };
+  }
+
+  try {
+    await updateStore((s) => {
+      const d = s.brandDeposits.find((x) => x.id === id);
+      if (!d || d.status !== "pending") throw new Error("Deposit is not waiting for review.");
+      applyWalletDelta(s, {
+        userId: d.brandId,
+        availableDelta: d.amountCents,
+        type: "credit",
+        reason: d.note || "Brand deposit credited",
+        referenceType: "brand_deposit",
+        referenceId: d.id,
+      });
+      d.status = "credited";
+    });
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : "Failed." };
+  }
+
+  revalidatePath("/dashboard/admin/deposits");
+  revalidatePath("/dashboard/brand/deposits");
+  revalidatePath("/dashboard/brand");
+  return { ok: true as const };
+}
+
+export async function rejectBrandDepositAction(id: string) {
+  const session = await requireSession();
+  if (!session.roles.includes("admin")) return { ok: false as const, error: "Admin only." };
+
+  try {
+    await updateStore((s) => {
+      const d = s.brandDeposits.find((x) => x.id === id);
+      if (!d || d.status !== "pending") throw new Error("Deposit is not waiting for review.");
+      d.status = "rejected";
+    });
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : "Failed." };
+  }
+
+  revalidatePath("/dashboard/admin/deposits");
   revalidatePath("/dashboard/brand/deposits");
   return { ok: true as const };
 }

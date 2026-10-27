@@ -68,11 +68,18 @@ export default async function PublicInfluencerPage({
           )}
         </div>
 
-        <div className="mt-10">
+        <div className="mt-10 flex flex-wrap gap-2">
           {session?.roles.includes("brand") ? (
-            <Link href={`/influencers/${slug}/book`}>
-              <Button size="lg">Request booking</Button>
-            </Link>
+            <>
+              <Link href={`/influencers/${slug}/book`}>
+                <Button size="lg">Request booking</Button>
+              </Link>
+              <Link href={`/dashboard/brand/deals/new?influencer=${profile.id}`}>
+                <Button size="lg" variant="secondary">
+                  Private offer
+                </Button>
+              </Link>
+            </>
           ) : (
             <Link href={session ? "/dashboard" : "/signup?role=brand"}>
               <Button size="lg" variant="secondary">

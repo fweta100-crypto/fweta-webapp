@@ -1,3 +1,4 @@
+import { Inbox, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 
 import { cn } from "@/lib/utils";
@@ -39,20 +40,22 @@ export function EmptyState({
   title,
   description,
   action,
+  icon: Icon = Inbox,
   className,
 }: {
   title: string;
   description?: string;
   action?: React.ReactNode;
+  icon?: LucideIcon;
   className?: string;
 }) {
   return (
     <div className={cn("empty-panel", className)}>
-      <div className="flex size-9 items-center justify-center rounded-full bg-gold-soft text-sm font-semibold text-gold-deep">
-        ··
+      <div className="flex size-9 items-center justify-center rounded-full bg-gold-soft text-gold-deep">
+        <Icon className="size-4" strokeWidth={1.75} aria-hidden />
       </div>
       <div className="space-y-1.5">
-        <h3 className="font-display text-[1.65rem] leading-none tracking-tight text-foreground">
+        <h3 className="font-display text-[1.35rem] leading-tight tracking-tight text-foreground md:text-[1.5rem]">
           {title}
         </h3>
         {description ? (
@@ -145,11 +148,17 @@ export function Stat({
 }) {
   return (
     <div className={cn("stat-card pl-5", className)}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted">{label}</p>
-      <p className="mt-2.5 font-display text-[1.85rem] leading-none tracking-tight text-foreground md:text-[2.05rem]">
+      <p className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">
+        {label}
+      </p>
+      <p className="mt-2 truncate font-display text-[1.45rem] leading-none tracking-tight text-foreground sm:mt-2.5 sm:text-[1.85rem] md:text-[2.05rem]">
         {value}
       </p>
-      {hint ? <p className="mt-2 text-xs leading-snug text-muted-light">{hint}</p> : null}
+      {hint ? (
+        <p className="mt-1.5 line-clamp-2 text-[11px] leading-snug text-muted-light sm:mt-2 sm:text-xs">
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }

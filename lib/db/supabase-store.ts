@@ -149,23 +149,38 @@ async function saveRelationalStore(store: DatabaseStore): Promise<boolean> {
   }
 }
 
+function mergeMissingProfiles(local: DatabaseStore, remote: DatabaseStore): DatabaseStore {
+  const emails = new Set(local.profiles.map((p) => (p.email || "").trim().toLowerCase()));
+  const extra = remote.profiles.filter((p) => p.email && !emails.has(p.email.trim().toLowerCase()));
+  if (extra.length === 0) return local;
+  const extraIds = new Set(extra.map((p) => p.id));
+  const walletIds = new Set(local.wallets.map((w) => w.userId));
+  return {
+    ...local,
+    profiles: [...local.profiles, ...extra],
+    wallets: [
+      ...local.wallets,
+      ...remote.wallets.filter((w) => extraIds.has(w.userId) && !walletIds.has(w.userId)),
+    ],
+  };
+}
+
 export async function loadStoreFromSupabase(): Promise<DatabaseStore | null> {
   try {
+    // JSON blob is the full store. Reading fweta_* tables first drops
+    // fields those tables don't have, and would hide accounts that only
+    // exist inside the blob.
+    const jsonBlob = await loadJsonBlob();
+    if (jsonBlob && hasData(jsonBlob)) {
+      return jsonBlob;
+    }
+
     const relational = await loadRelationalStore();
     if (relational && hasData(relational)) {
       return relational;
     }
 
-    const jsonBlob = await loadJsonBlob();
-    if (jsonBlob && hasData(jsonBlob)) {
-      // Only migrate JSON → relational when explicitly enabled
-      if (process.env.FWETA_RELATIONAL_SYNC === "true") {
-        await saveRelationalStore(jsonBlob).catch(() => undefined);
-      }
-      return jsonBlob;
-    }
-
-    return relational ?? jsonBlob ?? emptyStore();
+    return jsonBlob ?? relational ?? emptyStore();
   } catch (err) {
     console.warn("[fweta] loadStoreFromSupabase failed:", err instanceof Error ? err.message : err);
     return emptyStore();
@@ -257,9 +272,12 @@ export async function diagnoseSupabaseStore(): Promise<SupabaseStoreDiagnostics>
 
 export async function saveStoreToSupabase(store: DatabaseStore): Promise<boolean> {
   // JSON blob upsert is safe; relational save deletes all rows first and can wipe data on failure.
-  const jsonOk = await saveJsonBlob(store);
+  // Keep remote accounts a stale local cache does not know about.
+  const remote = await loadJsonBlob();
+  const toSave = remote ? mergeMissingProfiles(store, remote) : store;
+  const jsonOk = await saveJsonBlob(toSave);
   if (process.env.FWETA_RELATIONAL_SYNC === "true") {
-    const relationalOk = await saveRelationalStore(store);
+    const relationalOk = await saveRelationalStore(toSave);
     return jsonOk || relationalOk;
   }
   return jsonOk;

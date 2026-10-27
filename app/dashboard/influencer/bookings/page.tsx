@@ -3,8 +3,10 @@ import { redirect } from "next/navigation";
 
 import { listInfluencerBookings } from "@/app/actions/bookings";
 import { InfluencerBookingActions } from "@/components/forms/influencer-booking-actions";
-import { Badge, EmptyState, PageHeader } from "@/components/ui/card";
+import { EmptyState, PageHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { bookingKind } from "@/lib/bookings/kind";
 import { getSession } from "@/lib/auth/session";
 import { readStore } from "@/lib/db/store";
 import { formatMoney } from "@/lib/utils";
@@ -45,18 +47,39 @@ export default async function InfluencerBookingsPage() {
         <ul className="space-y-2.5">
           {bookings.map((b) => {
             const brand = store.profiles.find((p) => p.id === b.brandId);
-            const rate = store.rateCards.find((r) => r.id === b.rateCardItemId);
+            const isPrivate = bookingKind(b) === "private";
+            const rate = b.rateCardItemId
+              ? store.rateCards.find((r) => r.id === b.rateCardItemId)
+              : undefined;
             return (
               <li key={b.id} className="list-row items-start">
                 <div className="w-full space-y-3">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="font-medium">{brand?.displayName ?? "Brand"}</p>
-                      <p className="text-sm text-muted">{rate?.title}</p>
+                      <p className="text-sm text-muted">
+                        {isPrivate ? "Private offer" : (rate?.title ?? "Booking")}
+                      </p>
                       <p className="mt-1 text-sm">{formatMoney(b.amountCents)}</p>
                       <p className="mt-2 text-sm text-muted">{b.brief}</p>
+                      {b.status === "in_progress" && b.revisionNote ? (
+                        <p className="mt-2 text-sm">
+                          <span className="font-medium">The brand asked for changes:</span>{" "}
+                          {b.revisionNote}
+                        </p>
+                      ) : null}
+                      {b.status === "in_progress" && b.deliverableUrl ? (
+                        <a
+                          href={b.deliverableUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1 block text-sm text-gold-deep hover:underline"
+                        >
+                          Previous delivery
+                        </a>
+                      ) : null}
                     </div>
-                    <Badge tone={b.status === "approved" ? "success" : "muted"}>{b.status}</Badge>
+                    <StatusBadge status={b.status} />
                   </div>
                   <div className="border-t border-border/80 pt-3">
                     <InfluencerBookingActions bookingId={b.id} status={b.status} />

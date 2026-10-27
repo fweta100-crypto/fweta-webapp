@@ -1,19 +1,22 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import { getCampaign } from "@/app/actions/campaigns";
-import { listCampaignSubmissions } from "@/app/actions/submissions";
-import { SubmissionReviewForm } from "@/components/forms/submission-review-form";
-import { Badge, EmptyState, PageHeader } from "@/components/ui/card";
+import { getCampaign, listBrandCampaigns } from "@/app/actions/campaigns";
+import { listBrandSubmissions } from "@/app/actions/submissions";
+import { BrandSubmissionQueue } from "@/components/dashboard/brand-submission-queue";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/card";
 import { getSession } from "@/lib/auth/session";
 import { readStore } from "@/lib/db/store";
-import { formatMoney, formatNumber } from "@/lib/utils";
+import { parseSubmissionFilters } from "@/lib/submissions/filter";
+import { formatMoney } from "@/lib/utils";
 
 export default async function CampaignSubmissionsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
   const session = await getSession();
@@ -27,78 +30,44 @@ export default async function CampaignSubmissionsPage({
     redirect("/dashboard/brand/campaigns");
   }
 
-  const [submissions, store] = await Promise.all([
-    listCampaignSubmissions(id),
+  const raw = await searchParams;
+  const flat = Object.fromEntries(
+    Object.entries(raw).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v]),
+  );
+  const filters = parseSubmissionFilters(flat, { campaignId: id, status: "pending" });
+
+  const [allSubmissions, campaigns, store] = await Promise.all([
+    listBrandSubmissions(),
+    listBrandCampaigns(),
     readStore(),
   ]);
+
+  const paidOnCampaign = allSubmissions
+    .filter((s) => s.campaignId === id)
+    .reduce((sum, s) => sum + s.earningsCents, 0);
 
   return (
     <div className="dash-stack">
       <PageHeader
-        title="Submission queue"
-        description={`Review clips for ${campaign.title}.`}
+        title="Clips"
+        description={`${campaign.title} · ${formatMoney(paidOnCampaign)} paid to creators`}
         action={
           <Link href={`/dashboard/brand/campaigns/${id}`}>
             <Button size="sm" variant="secondary">
-              ← Back to campaign
+              ← Campaign
             </Button>
           </Link>
         }
       />
 
-      {submissions.length === 0 ? (
-        <EmptyState
-          title="No submissions"
-          description="Clippers haven't submitted clips yet."
-        />
-      ) : (
-        <ul className="space-y-2.5">
-          {submissions.map((s) => {
-            const clipper = store.profiles.find((p) => p.id === s.clipperId);
-            return (
-              <li key={s.id} className="list-row items-start">
-                <div className="w-full space-y-3">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">{clipper?.displayName ?? "Creator"}</p>
-                      <a
-                        href={s.postUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-1 block break-all text-sm text-gold-deep hover:underline"
-                      >
-                        {s.postUrl}
-                      </a>
-                      <p className="mt-1 text-xs text-muted">
-                        {s.platform} · {formatNumber(s.views)} views · {formatMoney(s.earningsCents)}{" "}
-                        earned
-                      </p>
-                    </div>
-                    <Badge
-                      tone={
-                        s.status === "approved"
-                          ? "success"
-                          : s.status === "rejected"
-                            ? "danger"
-                            : s.status === "flagged"
-                              ? "gold"
-                              : "muted"
-                      }
-                    >
-                      {s.status}
-                    </Badge>
-                  </div>
-                  {s.status === "pending" ? (
-                    <div className="border-t border-border/80 pt-3">
-                      <SubmissionReviewForm submissionId={s.id} />
-                    </div>
-                  ) : null}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <BrandSubmissionQueue
+        submissions={allSubmissions}
+        campaigns={campaigns}
+        profiles={store.profiles}
+        filters={filters}
+        action={`/dashboard/brand/campaigns/${id}/submissions`}
+        lockCampaignId={id}
+      />
     </div>
   );
 }

@@ -24,7 +24,7 @@ export default async function BrandAnalyticsPage() {
     .filter((s) => campaignIds.has(s.campaignId))
     .reduce((s, sub) => s + sub.earningsCents, 0);
   const deposits = store.brandDeposits
-    .filter((d) => d.brandId === session.id)
+    .filter((d) => d.brandId === session.id && d.status === "credited")
     .reduce((s, d) => s + d.amountCents, 0);
 
   return (

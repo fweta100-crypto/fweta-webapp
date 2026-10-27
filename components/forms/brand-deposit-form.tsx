@@ -14,7 +14,7 @@ export function BrandDepositForm() {
 
   return (
     <form
-      className="max-w-md space-y-4"
+      className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault();
         const form = e.currentTarget;
@@ -44,11 +44,11 @@ export function BrandDepositForm() {
       </div>
       <div>
         <Label htmlFor="note">Note (optional)</Label>
-        <Textarea id="note" name="note" placeholder="EFT reference or memo" />
+        <Textarea id="note" name="note" placeholder="EFT reference or memo" className="min-h-20" />
       </div>
       <FieldError>{error}</FieldError>
-      <Button type="submit" disabled={pending}>
-        {pending ? "Processing…" : "Record deposit"}
+      <Button type="submit" disabled={pending} className="w-full sm:w-auto">
+        {pending ? "Recording…" : "Record deposit"}
       </Button>
     </form>
   );

@@ -3,17 +3,27 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useTransition } from "react";
+import { ArrowRight, CircleAlert, Eye, EyeOff, LoaderCircle, Lock, Mail } from "lucide-react";
 
 import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
-import { FieldError, Input, Label } from "@/components/ui/input";
+import { Input, Label } from "@/components/ui/input";
 import { loginAction } from "@/app/actions/auth";
+
+// Only same-origin paths; "//host" and "/\host" are treated as external by browsers.
+function safeNextPath(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) {
+    return "/dashboard";
+  }
+  return raw;
+}
 
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") || "/dashboard";
+  const next = safeNextPath(searchParams.get("next"));
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const [pending, startTransition] = useTransition();
 
   return (
@@ -40,28 +50,26 @@ export function LoginForm() {
 
       <div className="auth-panel bg-atmosphere">
         <div className="auth-card animate-soft-scale">
-          <div className="mb-8 flex items-center justify-between md:hidden">
+          <div className="mb-10 flex items-center justify-between min-[960px]:hidden">
             <Logo size="sm" />
-            <a href="https://fweta.com" className="text-xs text-muted">
+            <a href="https://fweta.com" className="text-xs text-muted hover:text-foreground">
               fweta.com
             </a>
           </div>
 
-          <div className="mb-8 hidden items-center justify-between md:flex">
-            <p className="text-sm text-muted">Welcome back</p>
-            <Link href="/signup" className="text-sm font-medium text-foreground hover:text-gold">
-              Create account
-            </Link>
-          </div>
-
-          <h1 className="font-display text-[2.35rem] leading-none text-foreground md:text-5xl">
+          <p className="text-xs font-medium uppercase tracking-[0.18em] text-gold-deep">
+            Welcome back
+          </p>
+          <h1 className="mt-3 font-display text-[2.35rem] leading-none text-foreground md:text-5xl">
             Sign in
           </h1>
-          <p className="mt-3 text-sm text-muted">Access your fweta workspace with email and password.</p>
+          <p className="mt-3 text-sm text-muted">
+            Access your fweta workspace with email and password.
+          </p>
           <div className="hairline-gold my-7" />
 
           <form
-            className="space-y-4"
+            className="space-y-5"
             onSubmit={(e) => {
               e.preventDefault();
               const fd = new FormData(e.currentTarget);
@@ -82,29 +90,95 @@ export function LoginForm() {
           >
             <div>
               <Label htmlFor="email">Email</Label>
-              <Input id="email" name="email" type="email" required placeholder="you@brand.co" autoComplete="email" />
+              <div className="relative">
+                <Mail
+                  className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-muted-light"
+                  aria-hidden
+                />
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  required
+                  autoFocus
+                  defaultValue={searchParams.get("email") ?? undefined}
+                  placeholder="you@brand.co"
+                  autoComplete="email"
+                  className="has-leading-icon"
+                  aria-invalid={error ? true : undefined}
+                />
+              </div>
             </div>
+
             <div>
               <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                required
-                minLength={8}
-                autoComplete="current-password"
-              />
+              <div className="relative">
+                <Lock
+                  className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-muted-light"
+                  aria-hidden
+                />
+                <Input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  minLength={8}
+                  placeholder="At least 8 characters"
+                  autoComplete="current-password"
+                  className="has-leading-icon has-trailing-action"
+                  aria-invalid={error ? true : undefined}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-muted transition hover:bg-surface-2 hover:text-foreground"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-[18px] w-[18px]" aria-hidden />
+                  ) : (
+                    <Eye className="h-[18px] w-[18px]" aria-hidden />
+                  )}
+                </button>
+              </div>
             </div>
-            <FieldError>{error}</FieldError>
-            <Button type="submit" size="lg" className="mt-2" disabled={pending}>
-              {pending ? "Signing in…" : "Continue"}
+
+            {error ? (
+              <div
+                role="alert"
+                className="animate-fade-in flex items-start gap-2.5 rounded-xl border border-danger/20 bg-danger-soft px-3.5 py-3 text-sm text-danger"
+              >
+                <CircleAlert className="mt-px h-4 w-4 shrink-0" aria-hidden />
+                <span>{error}</span>
+              </div>
+            ) : null}
+
+            <Button type="submit" size="lg" className="group mt-1" disabled={pending}>
+              {pending ? (
+                <>
+                  <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
+                  Signing in…
+                </>
+              ) : (
+                <>
+                  Continue
+                  <ArrowRight
+                    className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+                    aria-hidden
+                  />
+                </>
+              )}
             </Button>
           </form>
 
-          <p className="mt-6 text-center text-sm text-muted md:hidden">
-            No account?{" "}
-            <Link href="/signup" className="font-medium text-foreground">
-              Create one
+          <p className="mt-8 border-t border-border pt-6 text-center text-sm text-muted">
+            New to fweta?{" "}
+            <Link
+              href="/signup"
+              className="font-medium text-foreground underline-offset-4 hover:text-gold-deep hover:underline"
+            >
+              Create an account
             </Link>
           </p>
         </div>

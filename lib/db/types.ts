@@ -59,6 +59,8 @@ export type Campaign = {
   platforms: SocialPlatform[];
   requirements: string;
   endDate: string | null;
+  /** Last brand-triggered view refresh; rate-limits manual refreshes. */
+  viewsRefreshedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -173,26 +175,35 @@ export type RateCardItem = {
   updatedAt: string;
 };
 
+export type BookingKind = "public" | "private";
+
 export type Booking = {
   id: string;
   brandId: string;
   influencerId: string;
   influencerProfileId: string;
-  rateCardItemId: string;
+  /** Null on private deals — the brand sets the price. */
+  rateCardItemId: string | null;
+  /** Missing on older public bookings; treat a set rate card as public. */
+  kind?: BookingKind;
   amountCents: number;
   brief: string;
   deliverableUrl: string | null;
+  /** Set when the brand sends a delivery back; cleared on redelivery. */
+  revisionNote?: string | null;
   status: BookingStatus;
   createdAt: string;
   updatedAt: string;
 };
+
+export type BrandDepositStatus = "pending" | "credited" | "rejected";
 
 export type BrandDeposit = {
   id: string;
   brandId: string;
   amountCents: number;
   note: string;
-  status: "pending" | "credited";
+  status: BrandDepositStatus;
   createdAt: string;
 };
 

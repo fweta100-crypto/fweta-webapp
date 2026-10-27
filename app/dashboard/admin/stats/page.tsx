@@ -16,7 +16,9 @@ export default async function AdminStatsPage() {
 
   if (!stats) redirect("/dashboard");
 
-  const totalDeposits = store.brandDeposits.reduce((s, d) => s + d.amountCents, 0);
+  const totalDeposits = store.brandDeposits
+    .filter((d) => d.status === "credited")
+    .reduce((s, d) => s + d.amountCents, 0);
   const totalWithdrawn = store.withdrawalRequests
     .filter((w) => w.status === "paid")
     .reduce((s, w) => s + w.amountCents, 0);

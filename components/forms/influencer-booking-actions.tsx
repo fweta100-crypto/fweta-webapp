@@ -78,7 +78,7 @@ export function InfluencerBookingActions({
           <Input id={`deliver-${bookingId}`} name="url" type="url" required placeholder="https://" />
         </div>
         <Button size="sm" type="submit" disabled={pending}>
-          Mark delivered
+          {status === "in_progress" ? "Redeliver" : "Mark delivered"}
         </Button>
         <FieldError>{error}</FieldError>
       </form>

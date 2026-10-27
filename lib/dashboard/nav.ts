@@ -13,6 +13,7 @@ import {
   CalendarDays,
   BadgeDollarSign,
   Landmark,
+  Handshake,
 } from "lucide-react";
 
 import type { UserRole } from "@/types/enums";
@@ -73,6 +74,20 @@ export const ROLE_NAV: Record<UserRole, RoleNavConfig> = {
       },
     ],
     sidebarExtra: [
+      {
+        href: "/dashboard/brand/submissions",
+        label: "Reviews",
+        shortLabel: "Reviews",
+        icon: FileText,
+        match: "prefix",
+      },
+      {
+        href: "/dashboard/brand/deals/new",
+        label: "Private deals",
+        shortLabel: "Deals",
+        icon: Handshake,
+        match: "prefix",
+      },
       {
         href: "/dashboard/brand/deposits",
         label: "Deposits",
@@ -239,6 +254,13 @@ export const ROLE_NAV: Record<UserRole, RoleNavConfig> = {
     ],
     sidebarExtra: [
       {
+        href: "/dashboard/admin/deposits",
+        label: "Deposits",
+        shortLabel: "Deposits",
+        icon: Landmark,
+        match: "prefix",
+      },
+      {
         href: "/dashboard/admin/stats",
         label: "Stats",
         shortLabel: "Stats",
@@ -264,6 +286,7 @@ export function findActiveNav(pathname: string, items: NavItem[]): NavItem | und
 
 /** Nested / form pages get a back affordance in the mobile top bar */
 export function getBackHref(pathname: string): string | null {
+  if (pathname === "/dashboard/brand/deals/new") return "/dashboard/brand/bookings";
   const parts = pathname.split("/").filter(Boolean);
   // /dashboard/:role or /dashboard/settings — top level
   if (parts.length <= 2) return null;
@@ -281,7 +304,9 @@ const TITLE_OVERRIDES: Record<string, string> = {
   "/dashboard/brand": "Overview",
   "/dashboard/brand/campaigns": "Campaigns",
   "/dashboard/brand/campaigns/new": "New campaign",
+  "/dashboard/brand/submissions": "Reviews",
   "/dashboard/brand/bookings": "Bookings",
+  "/dashboard/brand/deals/new": "Private offer",
   "/dashboard/brand/analytics": "Analytics",
   "/dashboard/brand/deposits": "Deposits",
   "/dashboard/clipper": "Overview",
@@ -295,6 +320,7 @@ const TITLE_OVERRIDES: Record<string, string> = {
   "/dashboard/influencer/earnings": "Earnings",
   "/dashboard/admin": "Overview",
   "/dashboard/admin/withdrawals": "Withdrawals",
+  "/dashboard/admin/deposits": "Deposits",
   "/dashboard/admin/users": "Users",
   "/dashboard/admin/fraud": "Fraud",
   "/dashboard/admin/stats": "Stats",

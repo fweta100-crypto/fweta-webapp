@@ -183,9 +183,8 @@ export function CampaignForm({ mode, campaign, walletAvailableCents }: Props) {
           <div>
             <Label htmlFor="status">Initial status</Label>
             <Select id="status" name="status" defaultValue="draft">
-              <option value="draft">Draft</option>
-              <option value="pending">Pending</option>
-              <option value="active">Active</option>
+              <option value="draft">Draft — save, fund later</option>
+              <option value="active">Active — fund from wallet now</option>
             </Select>
           </div>
         ) : null}

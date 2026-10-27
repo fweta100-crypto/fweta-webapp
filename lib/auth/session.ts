@@ -101,7 +101,7 @@ export async function signup(input: {
   password: string;
   displayName?: string;
   roles: UserRole[];
-}): Promise<{ ok: true } | { ok: false; error: string }> {
+}): Promise<{ ok: true } | { ok: false; error: string; code?: "email_taken" }> {
   const email = input.email.trim().toLowerCase();
   if (!email || input.password.length < 8) {
     return { ok: false, error: "Valid email and password (8+ chars) required." };
@@ -115,7 +115,7 @@ export async function signup(input: {
 
   const store = await readStore();
   if (store.profiles.some((p) => p.email === email)) {
-    return { ok: false, error: "An account with this email already exists." };
+    return { ok: false, error: "An account with this email already exists.", code: "email_taken" };
   }
 
   const passwordHash = await bcrypt.hash(input.password, 10);
@@ -140,16 +140,22 @@ export async function signup(input: {
 
   // Atomic duplicate check + insert: two concurrent signups for the same
   // email previously both passed the pre-check and created duplicates.
+  let emailTaken = false;
   try {
     await updateStore((s) => {
       if (s.profiles.some((p) => p.email === email)) {
+        emailTaken = true;
         throw new Error("An account with this email already exists.");
       }
       s.profiles.push(profile);
       ensureWallet(s, profile.id);
     });
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Signup failed." };
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Signup failed.",
+      ...(emailTaken ? { code: "email_taken" as const } : {}),
+    };
   }
 
   const token = await signSession({

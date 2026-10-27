@@ -4,9 +4,15 @@ import { revalidatePath } from "next/cache";
 
 import { requireSession } from "@/lib/auth/session";
 import { newId, nowIso, readStore, updateStore } from "@/lib/db/store";
-import type { Booking } from "@/lib/db/types";
+import type { Booking, InfluencerProfile } from "@/lib/db/types";
 import { applyWalletDelta } from "@/lib/wallet/ledger";
-import { bookingSchema } from "@/lib/validations/booking";
+import { bookingSchema, privateDealSchema } from "@/lib/validations/booking";
+import { formatMoney } from "@/lib/utils";
+
+function escrowError(e: unknown, amountCents: number) {
+  if (e instanceof Error && !e.message.startsWith("Insufficient available")) return e.message;
+  return `Insufficient wallet balance. You need ${formatMoney(amountCents)} available — record a deposit and wait for an admin to credit it.`;
+}
 
 /**
  * Booking decision: request/accept (not instant book).
@@ -39,6 +45,7 @@ export async function requestBookingAction(raw: unknown) {
     influencerId: profile.userId,
     influencerProfileId: profile.id,
     rateCardItemId: rate.id,
+    kind: "public",
     amountCents: rate.priceCents,
     brief: parsed.data.brief,
     deliverableUrl: null,
@@ -64,13 +71,93 @@ export async function requestBookingAction(raw: unknown) {
   } catch (e) {
     return {
       ok: false as const,
-      error: e instanceof Error ? e.message : "Insufficient brand wallet balance. Deposit first.",
+      error: escrowError(e, rate.priceCents),
     };
   }
 
   revalidatePath("/dashboard/brand/bookings");
   revalidatePath("/dashboard/influencer/bookings");
   return { ok: true as const, id: booking.id };
+}
+
+export async function requestPrivateDealAction(raw: unknown) {
+  const session = await requireSession();
+  if (!session.roles.includes("brand")) {
+    return { ok: false as const, error: "Brand role required." };
+  }
+  const parsed = privateDealSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false as const, error: "Invalid private offer." };
+
+  const store = await readStore();
+  const profile = store.influencerProfiles.find((p) => p.id === parsed.data.influencerProfileId);
+  if (!profile) return { ok: false as const, error: "Influencer not found." };
+  if (profile.userId === session.id) {
+    return { ok: false as const, error: "You cannot send a private offer to yourself." };
+  }
+
+  const booking: Booking = {
+    id: newId(),
+    brandId: session.id,
+    influencerId: profile.userId,
+    influencerProfileId: profile.id,
+    rateCardItemId: null,
+    kind: "private",
+    amountCents: parsed.data.amountCents,
+    brief: parsed.data.brief,
+    deliverableUrl: null,
+    status: "requested",
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+
+  try {
+    await updateStore((s) => {
+      applyWalletDelta(s, {
+        userId: session.id,
+        availableDelta: -parsed.data.amountCents,
+        pendingDelta: parsed.data.amountCents,
+        type: "debit",
+        reason: `Private offer escrow · ${profile.displayName}`,
+        referenceType: "booking_escrow",
+        referenceId: booking.id,
+      });
+      s.bookings.push(booking);
+    });
+  } catch (e) {
+    return {
+      ok: false as const,
+      error: escrowError(e, parsed.data.amountCents),
+    };
+  }
+
+  revalidatePath("/dashboard/brand/bookings");
+  revalidatePath("/dashboard/brand/deals/new");
+  revalidatePath("/dashboard/influencer/bookings");
+  return { ok: true as const, id: booking.id };
+}
+
+export async function searchInfluencersForDeal(q?: string): Promise<InfluencerProfile[]> {
+  const session = await requireSession();
+  if (!session.roles.includes("brand") && !session.roles.includes("admin")) return [];
+  const store = await readStore();
+  const needle = q?.trim().toLowerCase() ?? "";
+  return store.influencerProfiles
+    .filter((p) => p.userId !== session.id)
+    .filter((p) =>
+      needle
+        ? `${p.displayName} ${p.headline} ${p.niche} ${p.location}`
+            .toLowerCase()
+            .includes(needle)
+        : true,
+    )
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+}
+
+export async function getInfluencerForDeal(id: string): Promise<InfluencerProfile | null> {
+  const session = await requireSession();
+  if (!session.roles.includes("brand") && !session.roles.includes("admin")) return null;
+  const store = await readStore();
+  return store.influencerProfiles.find((p) => p.id === id) ?? null;
 }
 
 export async function respondBookingAction(id: string, accept: boolean) {
@@ -118,6 +205,37 @@ export async function respondBookingAction(id: string, accept: boolean) {
   return { ok: true as const };
 }
 
+export async function cancelBookingAction(id: string) {
+  const session = await requireSession();
+  try {
+    await updateStore((s) => {
+      const b = s.bookings.find((x) => x.id === id);
+      if (!b || b.brandId !== session.id) throw new Error("Not found.");
+      if (b.status !== "requested") {
+        throw new Error("The influencer already responded — this can no longer be withdrawn.");
+      }
+      applyWalletDelta(s, {
+        userId: b.brandId,
+        availableDelta: b.amountCents,
+        pendingDelta: -b.amountCents,
+        type: "credit",
+        reason: "Booking withdrawn — escrow refunded",
+        referenceType: "booking_refund",
+        referenceId: b.id,
+      });
+      b.status = "cancelled";
+      b.updatedAt = nowIso();
+    });
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : "Failed." };
+  }
+
+  revalidatePath("/dashboard/brand/bookings");
+  revalidatePath("/dashboard/influencer/bookings");
+  revalidatePath("/dashboard/brand");
+  return { ok: true as const };
+}
+
 export async function deliverBookingAction(id: string, deliverableUrl: string) {
   const session = await requireSession();
   try {
@@ -129,11 +247,37 @@ export async function deliverBookingAction(id: string, deliverableUrl: string) {
     const b = s.bookings.find((x) => x.id === id && x.influencerId === session.id);
     if (!b || (b.status !== "accepted" && b.status !== "in_progress")) return;
     b.deliverableUrl = deliverableUrl;
+    b.revisionNote = null;
     b.status = "delivered";
     b.updatedAt = nowIso();
   });
   revalidatePath("/dashboard/influencer/bookings");
   revalidatePath("/dashboard/brand/bookings");
+  revalidatePath("/dashboard/brand");
+  return { ok: true as const };
+}
+
+export async function requestBookingChangesAction(id: string, note: string) {
+  const session = await requireSession();
+  const trimmed = note.trim();
+  if (trimmed.length < 5 || trimmed.length > 2000) {
+    return { ok: false as const, error: "Tell the influencer what to change (5–2000 characters)." };
+  }
+  try {
+    await updateStore((s) => {
+      const b = s.bookings.find((x) => x.id === id);
+      if (!b || b.brandId !== session.id) throw new Error("Not found.");
+      if (b.status !== "delivered") throw new Error("Only a delivered booking can be sent back.");
+      b.revisionNote = trimmed;
+      b.status = "in_progress";
+      b.updatedAt = nowIso();
+    });
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : "Failed." };
+  }
+  revalidatePath("/dashboard/brand/bookings");
+  revalidatePath("/dashboard/influencer/bookings");
+  revalidatePath("/dashboard/brand");
   return { ok: true as const };
 }
 
@@ -186,6 +330,7 @@ export async function approveBookingAction(id: string) {
 
   revalidatePath("/dashboard/brand/bookings");
   revalidatePath("/dashboard/influencer/bookings");
+  revalidatePath("/dashboard/brand");
   return { ok: true as const };
 }
 

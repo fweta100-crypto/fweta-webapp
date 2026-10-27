@@ -10,9 +10,11 @@ import { applyWalletDelta } from "@/lib/wallet/ledger";
  * Phase 7 automation — callable via /api/jobs/poll-views or cron.
  * Uses Apify when APIFY_API_TOKEN is set; otherwise simulates view growth.
  */
-export async function pollSubmissionViewsJob() {
+export async function pollSubmissionViewsJob(campaignIds?: string[]) {
   const store = await readStore();
-  const approved = store.submissions.filter((s) => s.status === "approved");
+  const approved = store.submissions.filter(
+    (s) => s.status === "approved" && (!campaignIds || campaignIds.includes(s.campaignId)),
+  );
   const useApify = isApifyConfigured();
   let failed = 0;
 
@@ -69,7 +71,7 @@ export async function pollSubmissionViewsJob() {
     updated = pending.size;
   }
 
-  const earnings = await recalculateEarningsJob();
+  const earnings = await recalculateEarningsJob(campaignIds);
   return {
     updated,
     failed,
@@ -78,9 +80,11 @@ export async function pollSubmissionViewsJob() {
   };
 }
 
-export async function recalculateEarningsJob() {
+export async function recalculateEarningsJob(campaignIds?: string[]) {
   const store = await readStore();
-  const ids = store.submissions.filter((s) => s.status === "approved").map((s) => s.id);
+  const ids = store.submissions
+    .filter((s) => s.status === "approved" && (!campaignIds || campaignIds.includes(s.campaignId)))
+    .map((s) => s.id);
   let credited = 0;
 
   // Single write per submission (was two: wallet then record). Math is

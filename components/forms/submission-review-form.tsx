@@ -10,6 +10,7 @@ import { FieldError, Input, Label } from "@/components/ui/input";
 export function SubmissionReviewForm({ submissionId }: { submissionId: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState("");
   const [pending, startTransition] = useTransition();
 
   function review(status: "approved" | "rejected" | "flagged", note?: string) {
@@ -22,37 +23,37 @@ export function SubmissionReviewForm({ submissionId }: { submissionId: string })
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
+      <div>
+        <Label htmlFor={`note-${submissionId}`}>Note for the creator (optional)</Label>
+        <Input
+          id={`note-${submissionId}`}
+          name="note"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Why you are rejecting or flagging this clip"
+        />
+      </div>
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="gold" disabled={pending} onClick={() => review("approved")}>
           Approve
         </Button>
-        <Button size="sm" variant="secondary" disabled={pending} onClick={() => review("rejected")}>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={pending}
+          onClick={() => review("rejected", note || undefined)}
+        >
           Reject
         </Button>
-        <form
-          className="flex flex-wrap items-end gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const fd = new FormData(e.currentTarget);
-            review("flagged", String(fd.get("note") || "Flagged"));
-          }}
+        <Button
+          size="sm"
+          variant="danger"
+          disabled={pending}
+          onClick={() => review("flagged", note || "Flagged")}
         >
-          <div>
-            <Label htmlFor={`flag-${submissionId}`} className="sr-only">
-              Flag note
-            </Label>
-            <Input
-              id={`flag-${submissionId}`}
-              name="note"
-              placeholder="Flag reason"
-              className="h-9 w-40"
-            />
-          </div>
-          <Button size="sm" variant="danger" type="submit" disabled={pending}>
-            Flag
-          </Button>
-        </form>
+          Flag
+        </Button>
       </div>
       <FieldError>{error}</FieldError>
     </div>

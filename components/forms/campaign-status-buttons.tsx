@@ -3,7 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
-import { deleteCampaignAction, setCampaignStatusAction } from "@/app/actions/campaigns";
+import {
+  deleteCampaignAction,
+  duplicateCampaignAction,
+  setCampaignStatusAction,
+} from "@/app/actions/campaigns";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/input";
 import type { CampaignStatus } from "@/types/enums";
@@ -34,7 +38,7 @@ export function CampaignStatusButtons({
   return (
     <div>
       <div className="flex flex-wrap gap-2">
-        {status === "draft" || status === "paused" ? (
+        {status === "draft" || status === "pending" || status === "paused" ? (
           <Button size="sm" variant="gold" disabled={pending} onClick={() => setStatus("active")}>
             Activate
           </Button>
@@ -45,10 +49,38 @@ export function CampaignStatusButtons({
           </Button>
         ) : null}
         {status !== "completed" ? (
-          <Button size="sm" variant="ghost" disabled={pending} onClick={() => setStatus("completed")}>
+          <Button size="sm" variant="ghost" disabled={pending} onClick={() => {
+              if (
+                !window.confirm(
+                  "Mark this campaign completed? Clips stop earning and unused budget returns to your wallet. This can't be undone.",
+                )
+              ) {
+                return;
+              }
+              setStatus("completed");
+            }}
+          >
             Mark completed
           </Button>
         ) : null}
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={pending}
+          onClick={() => {
+            setError(null);
+            startTransition(async () => {
+              const res = await duplicateCampaignAction(campaignId);
+              if (!res.ok) {
+                setError(res.error);
+                return;
+              }
+              router.push(`/dashboard/brand/campaigns/${res.id}/edit`);
+            });
+          }}
+        >
+          Duplicate
+        </Button>
         <Button
           size="sm"
           variant="ghost"
