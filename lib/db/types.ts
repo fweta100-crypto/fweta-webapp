@@ -130,7 +130,7 @@ export type Profile = {
     idNumberEnc: string;
     country: string;
     submittedAt: string;
-    /** Filename in data/kyc. Never a public URL. */
+    /** File name in the private kyc-documents bucket. Never a public URL. */
     documentPath?: string | null;
     status?: "pending" | "verified" | "rejected";
     reviewedAt?: string | null;
@@ -138,6 +138,11 @@ export type Profile = {
   } | null;
   /** Bumped on password change so older session cookies stop working. */
   credentialVersion?: number;
+  /** Latest unused password reset grant. Cleared when the link is used. */
+  passwordReset?: {
+    jti: string;
+    expiresAt: string;
+  } | null;
 };
 
 export type CampaignAsset = {
@@ -179,7 +184,7 @@ export type Campaign = {
   closedAt: string | null;
   maxPayoutPerSubmissionCents: number;
   platforms: SocialPlatform[];
-  /** What to make — shown on the campaign page. */
+  /** What to make, shown on the campaign page. */
   requirements: string;
   /** Checkable rules the brand can reject against. */
   rules: string;
@@ -382,7 +387,7 @@ export type Booking = {
   brandId: string;
   influencerId: string;
   influencerProfileId: string;
-  /** Null on private deals — the brand sets the price. */
+  /** Null on private deals, the brand sets the price. */
   rateCardItemId: string | null;
   /** Missing on older public bookings; treat a set rate card as public. */
   kind?: BookingKind;
@@ -699,6 +704,12 @@ export type CreatorReview = {
   updatedAt: string;
 };
 
+export type RateLimitBucket = {
+  /** Hashed key, never the raw IP. */
+  key: string;
+  hits: number[];
+};
+
 export type DatabaseStore = {
   profiles: Profile[];
   campaigns: Campaign[];
@@ -733,4 +744,6 @@ export type DatabaseStore = {
   creatorPortfolios: CreatorPortfolio[];
   businessListings: BusinessListing[];
   creatorReviews: CreatorReview[];
+  /** Shared rate limit counters (signup, password reset). Optional so old documents load. */
+  rateLimits?: RateLimitBucket[];
 };

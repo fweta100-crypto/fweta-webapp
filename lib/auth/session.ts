@@ -1,7 +1,6 @@
-"use server";
-
 import { createHash } from "crypto";
 
+import { cleanDisplayName } from "@/lib/text/display-name";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
@@ -136,7 +135,7 @@ export async function signup(input: {
     id: newId(),
     email,
     passwordHash,
-    displayName: input.displayName?.trim() || email.split("@")[0],
+    displayName: cleanDisplayName(input.displayName ?? "") || email.split("@")[0],
     bio: "",
     avatarUrl: null,
     roles: input.roles,
@@ -304,7 +303,7 @@ let adminEnvWarningShown = false;
 /** Avoid re-hashing when this process already synced the current env admin. */
 let syncedAdminKey: string | null = null;
 
-/** Precomputed bcrypt hash for demo password `password123` — avoids hashing on every cold start. */
+/** Precomputed bcrypt hash for demo password `password123`, avoids hashing on every cold start. */
 const DEMO_PASSWORD_HASH = "$2b$10$zG4dij3FDqNB0B41xbteQ.MqWV4oXM5XqSmLk96dYyuha0hGOxirW";
 
 type AdminSeed = { email: string; password: string };

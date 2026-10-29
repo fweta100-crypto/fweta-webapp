@@ -19,8 +19,8 @@ export async function PublicChrome({
   return (
     <div className="bg-atmosphere min-h-dvh">
       <header className="public-header sticky top-0 z-40">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-5 py-4 md:px-8">
-          <div className="flex min-w-0 flex-wrap items-center gap-4">
+        <div className="mx-auto flex min-w-0 max-w-5xl flex-wrap items-center justify-between gap-3 px-5 py-4 md:px-8">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-4">
             <Logo href={session ? "/dashboard" : "/login"} />
             <nav aria-label="Public" className="flex flex-wrap gap-3 text-sm text-muted">
               <Link href="/campaigns" className="hover:text-foreground">
@@ -58,7 +58,7 @@ export async function PublicChrome({
         </div>
       </header>
 
-      <main id="main" className="mx-auto max-w-5xl px-5 py-10 md:px-8 md:py-12">
+      <main id="main" className="mx-auto min-w-0 max-w-5xl px-5 py-10 md:px-8 md:py-12">
         {title ? (
           <div className="mb-8 animate-fade-up md:mb-10">
             <h1 className="font-display text-4xl tracking-tight text-foreground md:text-5xl">
@@ -71,7 +71,36 @@ export async function PublicChrome({
         ) : null}
         <div className="animate-fade-up delay-1">{children}</div>
       </main>
-      <footer className="mx-auto w-full max-w-5xl px-5 pb-10 md:px-8">
+      <footer className="mx-auto w-full max-w-5xl space-y-3 px-5 pb-10 md:px-8">
+        <nav aria-label="Company">
+          <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+            <li>
+              <Link href="/about" className="underline-offset-2 hover:text-foreground hover:underline">
+                About
+              </Link>
+            </li>
+            <li>
+              <Link href="/pricing" className="underline-offset-2 hover:text-foreground hover:underline">
+                Pricing
+              </Link>
+            </li>
+            <li>
+              <Link href="/faq" className="underline-offset-2 hover:text-foreground hover:underline">
+                FAQ
+              </Link>
+            </li>
+            <li>
+              <Link href="/contact" className="underline-offset-2 hover:text-foreground hover:underline">
+                Contact
+              </Link>
+            </li>
+            <li>
+              <Link href="/help" className="underline-offset-2 hover:text-foreground hover:underline">
+                Help
+              </Link>
+            </li>
+          </ul>
+        </nav>
         <LegalFooter />
       </footer>
     </div>

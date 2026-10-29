@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
-import { getPublicInfluencer } from "@/app/actions/influencer";
+import { getPublicInfluencer } from "@/lib/influencers/public";
 import { BookingRequestForm } from "@/components/forms/booking-request-form";
 import { PublicChrome } from "@/components/public-chrome";
 import { Card, PageHeader } from "@/components/ui/card";
@@ -34,7 +34,11 @@ export default async function BookInfluencerPage({
             description="Funds are held in escrow until you approve delivery."
           />
           <Card>
-            <BookingRequestForm influencerProfileId={profile.id} rates={rates} />
+            <BookingRequestForm
+              influencerProfileId={profile.id}
+              rates={rates}
+              cancelHref={`/influencers/${slug}`}
+            />
           </Card>
         </div>
       </div>

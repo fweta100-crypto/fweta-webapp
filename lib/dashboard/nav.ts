@@ -427,6 +427,13 @@ export const ROLE_NAV: Record<UserRole, RoleNavConfig> = {
       {
         label: "Account",
         items: [
+          {
+            href: "/dashboard/settings/profile",
+            label: "Profile",
+            shortLabel: "Profile",
+            icon: BadgeCheck,
+            match: "exact",
+          },
           notificationsItem,
           {
             href: "/dashboard/support",
@@ -484,6 +491,13 @@ export const ROLE_NAV: Record<UserRole, RoleNavConfig> = {
             label: "Payouts",
             shortLabel: "Payouts",
             icon: Landmark,
+            match: "prefix",
+          },
+          {
+            href: "/dashboard/admin/bookings",
+            label: "Bookings",
+            shortLabel: "Bookings",
+            icon: CalendarDays,
             match: "prefix",
           },
         ],

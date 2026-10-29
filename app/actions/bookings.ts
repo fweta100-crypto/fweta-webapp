@@ -3,21 +3,24 @@
 import { revalidatePath } from "next/cache";
 
 import { requireSession } from "@/lib/auth/session";
+import { refundUndeliveredBooking } from "@/lib/bookings/refund";
 import { newId, nowIso, readStore, updateStore } from "@/lib/db/store";
+import { pushAudit } from "@/lib/marketplace/audit";
 import {
   notifyBookingAccepted,
   notifyBookingCompleted,
   notifyBookingDeclined,
   notifyBookingRequested,
 } from "@/lib/notifications/events";
-import type { Booking, InfluencerProfile } from "@/lib/db/types";
+import type { Booking } from "@/lib/db/types";
 import { applyWalletDelta } from "@/lib/wallet/ledger";
 import { bookingSchema, privateDealSchema } from "@/lib/validations/booking";
 import { formatMoney } from "@/lib/utils";
+import { findDealCreator, searchDealCreators, type DealCreator } from "@/lib/public/creators";
 
 function escrowError(e: unknown, amountCents: number) {
   if (e instanceof Error && !e.message.startsWith("Insufficient available")) return e.message;
-  return `Insufficient wallet balance. You need ${formatMoney(amountCents)} available — record a deposit and wait for an admin to credit it.`;
+  return `Insufficient wallet balance. You need ${formatMoney(amountCents)} available. Record a deposit and wait for an admin to credit it.`;
 }
 
 /**
@@ -98,7 +101,12 @@ export async function requestPrivateDealAction(raw: unknown) {
     return { ok: false as const, error: "Brand role required." };
   }
   const parsed = privateDealSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false as const, error: "Invalid private offer." };
+  if (!parsed.success) {
+    return {
+      ok: false as const,
+      error: parsed.error.issues[0]?.message ?? "Check the offer amount and brief.",
+    };
+  }
 
   const store = await readStore();
   const profile = store.influencerProfiles.find((p) => p.id === parsed.data.influencerProfileId);
@@ -148,28 +156,19 @@ export async function requestPrivateDealAction(raw: unknown) {
   return { ok: true as const, id: booking.id };
 }
 
-export async function searchInfluencersForDeal(q?: string): Promise<InfluencerProfile[]> {
+export async function searchInfluencersForDeal(q?: string): Promise<DealCreator[]> {
   const session = await requireSession();
   if (!session.roles.includes("brand") && !session.roles.includes("admin")) return [];
   const store = await readStore();
-  const needle = q?.trim().toLowerCase() ?? "";
-  return store.influencerProfiles
-    .filter((p) => p.userId !== session.id)
-    .filter((p) =>
-      needle
-        ? `${p.displayName} ${p.headline} ${p.niche} ${p.location}`
-            .toLowerCase()
-            .includes(needle)
-        : true,
-    )
-    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  const query = typeof q === "string" ? q.slice(0, 100) : undefined;
+  return searchDealCreators(store.influencerProfiles, store.profiles, session.id, query);
 }
 
-export async function getInfluencerForDeal(id: string): Promise<InfluencerProfile | null> {
+export async function getInfluencerForDeal(id: string): Promise<DealCreator | null> {
   const session = await requireSession();
   if (!session.roles.includes("brand") && !session.roles.includes("admin")) return null;
   const store = await readStore();
-  return store.influencerProfiles.find((p) => p.id === id) ?? null;
+  return findDealCreator(store.influencerProfiles, store.profiles, session.id, id);
 }
 
 export async function respondBookingAction(id: string, accept: boolean) {
@@ -226,14 +225,14 @@ export async function cancelBookingAction(id: string) {
       const b = s.bookings.find((x) => x.id === id);
       if (!b || b.brandId !== session.id) throw new Error("Not found.");
       if (b.status !== "requested") {
-        throw new Error("The influencer already responded — this can no longer be withdrawn.");
+        throw new Error("The influencer already responded, so this can no longer be withdrawn.");
       }
       applyWalletDelta(s, {
         userId: b.brandId,
         availableDelta: b.amountCents,
         pendingDelta: -b.amountCents,
         type: "credit",
-        reason: "Booking withdrawn — escrow refunded",
+        reason: "Booking withdrawn, escrow refunded",
         referenceType: "booking_refund",
         referenceId: b.id,
       });
@@ -307,7 +306,7 @@ export async function approveBookingAction(id: string) {
   }
 
   // Atomic: release brand escrow + credit influencer + mark approved.
-  // Previously three separate writes — a crash mid-way left money half-moved.
+  // Previously three separate writes, a crash mid-way left money half-moved.
   try {
     await updateStore((s) => {
       const b = s.bookings.find((x) => x.id === id);
@@ -345,6 +344,31 @@ export async function approveBookingAction(id: string) {
   revalidatePath("/dashboard/brand/bookings");
   revalidatePath("/dashboard/influencer/bookings");
   await notifyBookingCompleted(id);
+  return { ok: true as const };
+}
+
+export async function adminRefundBookingAction(id: string) {
+  const session = await requireSession();
+  if (!session.roles.includes("admin")) return { ok: false as const, error: "Admin only." };
+  try {
+    await updateStore((s) => {
+      const refunded = refundUndeliveredBooking(s, id);
+      if (!refunded) throw new Error("Only an accepted booking with no delivery can be refunded.");
+      pushAudit(s, {
+        actorId: session.id,
+        action: "booking.refund",
+        summary: "Refunded an accepted booking with no delivery",
+        targetType: "booking",
+        targetId: id,
+      });
+    });
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : "Could not refund the booking." };
+  }
+  revalidatePath("/dashboard/admin/bookings");
+  revalidatePath("/dashboard/brand/bookings");
+  revalidatePath("/dashboard/influencer/bookings");
+  revalidatePath("/dashboard/brand");
   return { ok: true as const };
 }
 

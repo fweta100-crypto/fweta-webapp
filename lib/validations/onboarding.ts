@@ -11,9 +11,11 @@ export const onboardingCompleteSchema = z
     phone: z
       .string()
       .trim()
-      .min(8, "Enter a valid phone number")
       .max(24)
-      .regex(/^[+]?[\d\s()-]{8,24}$/, "Use digits, spaces, or +country code"),
+      .refine(
+        (value) => value.length === 0 || /^[+]?[\d\s()-]{8,24}$/.test(value),
+        "Enter a valid phone number, or leave it blank.",
+      ),
     socials: z.object({
       tiktok: socialHandleField.optional().default(""),
       instagram: socialHandleField.optional().default(""),
@@ -26,15 +28,7 @@ export const onboardingCompleteSchema = z
     niche: z.string().trim().max(80).optional(),
     location: z.string().trim().max(80).optional(),
     primaryPlatform: socialPlatformSchema.optional(),
-  })
-  .refine(
-    (d) =>
-      Boolean(d.companyName?.trim()) ||
-      [d.socials.tiktok, d.socials.instagram, d.socials.facebook, d.socials.youtube, d.socials.x].some(
-        (v) => (v ?? "").trim().length >= 2,
-      ),
-    { message: "Add a business name or at least one social profile", path: ["socials"] },
-  );
+  });
 
 export type OnboardingCompleteInput = z.infer<typeof onboardingCompleteSchema>;
 
@@ -102,7 +96,7 @@ export const onboardingCampaignSchema = z
 export const onboardingPayoutSchema = z.object({
   bankName: z.string().trim().min(2).max(100),
   branchCode: z.string().regex(/^\d{6}$/, "Branch code must be 6 digits"),
-  accountNumber: z.string().trim().min(8).max(20),
+  accountNumber: z.string().trim().regex(/^\d{8,20}$/, "Account number must be digits only"),
   accountHolderName: z.string().trim().min(2).max(120),
   accountType: z.enum(["cheque", "savings", "transmission"]),
 });

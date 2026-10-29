@@ -1,14 +1,16 @@
 "use server";
 
+import { cleanDisplayName } from "@/lib/text/display-name";
 import { revalidatePath } from "next/cache";
 
 import { requireSession } from "@/lib/auth/session";
 import { newId, nowIso, readStore, updateStore } from "@/lib/db/store";
-import type { DatabaseStore, InfluencerProfile, Profile, ProfileSocials, RateCardItem } from "@/lib/db/types";
+import type { InfluencerProfile, ProfileSocials } from "@/lib/db/types";
 import {
   influencerProfileSchema,
   rateCardSchema,
 } from "@/lib/validations/influencer";
+import { addRateCardOnce } from "@/lib/influencers/rate-cards";
 import { slugify } from "@/lib/utils";
 
 function socialsFromForm(socials?: {
@@ -31,80 +33,18 @@ function socialsFromForm(socials?: {
   };
 }
 
-function isCreatorAccount(profile: Profile): boolean {
-  return (
-    !profile.suspended &&
-    profile.onboardingCompletedAt !== null &&
-    (profile.roles.includes("influencer") || profile.roles.includes("clipper"))
-  );
-}
-
-function needsDiscoverableRepair(store: DatabaseStore): boolean {
-  return store.profiles.some((account) => {
-    if (!isCreatorAccount(account)) return false;
-    const existing = store.influencerProfiles.find((profile) => profile.userId === account.id);
-    if (!existing) return true;
-    // Onboarding used to save published:false without a later edit.
-    return !existing.published && existing.updatedAt === existing.createdAt;
-  });
-}
-
-/** Brands can only book a published profile. Create one for finished creators who never got one. */
-export async function ensureDiscoverableCreators() {
-  const snapshot = await readStore();
-  if (!needsDiscoverableRepair(snapshot)) return;
-
-  const now = nowIso();
-  await updateStore((store) => {
-    for (const account of store.profiles) {
-      if (!isCreatorAccount(account)) continue;
-      const existing = store.influencerProfiles.find((profile) => profile.userId === account.id);
-      if (existing) {
-        if (!existing.published && existing.updatedAt === existing.createdAt) {
-          existing.published = true;
-        }
-        continue;
-      }
-
-      const base = slugify(account.displayName) || `creator-${account.id.slice(0, 6)}`;
-      let slug = base;
-      let n = 1;
-      while (store.influencerProfiles.some((profile) => profile.slug === slug)) {
-        slug = `${base}-${n++}`;
-      }
-      const niche =
-        account.niche?.trim() || (account.roles.includes("influencer") ? "Creator" : "Clipper");
-      const headline = niche.length >= 5 ? niche : `${account.displayName} on fweta`;
-      const bio =
-        account.bio.trim().length >= 10 ? account.bio.trim() : `${account.displayName} creates on fweta.`;
-
-      store.influencerProfiles.push({
-        id: newId(),
-        userId: account.id,
-        slug,
-        displayName: account.displayName,
-        headline,
-        bio,
-        niche,
-        location: account.location?.trim() || "Namibia",
-        avatarUrl: account.avatarUrl,
-        socials: { ...(account.socials ?? {}) },
-        featuredWork: [],
-        published: true,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-  });
-}
-
 export async function upsertInfluencerProfileAction(raw: unknown) {
   const session = await requireSession();
   if (!session.roles.includes("influencer")) {
     return { ok: false as const, error: "Influencer role required." };
   }
   const parsed = influencerProfileSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false as const, error: "Invalid profile." };
+  if (!parsed.success) {
+    return {
+      ok: false as const,
+      error: parsed.error.issues[0]?.message ?? "Check the profile fields.",
+    };
+  }
 
   const store = await readStore();
   const existing = store.influencerProfiles.find((p) => p.userId === session.id);
@@ -117,6 +57,10 @@ export async function upsertInfluencerProfileAction(raw: unknown) {
     }
   }
 
+  const cleanName = cleanDisplayName(parsed.data.displayName);
+  if (cleanName.length < 2) {
+    return { ok: false as const, error: "Display name must be at least 2 characters." };
+  }
   const now = nowIso();
   await updateStore((s) => {
     const current = s.influencerProfiles.find((p) => p.userId === session.id);
@@ -125,7 +69,7 @@ export async function upsertInfluencerProfileAction(raw: unknown) {
 
     if (current) {
       Object.assign(current, {
-        displayName: parsed.data.displayName,
+        displayName: cleanName,
         headline: parsed.data.headline,
         bio: parsed.data.bio,
         niche: parsed.data.niche,
@@ -139,7 +83,7 @@ export async function upsertInfluencerProfileAction(raw: unknown) {
         id: newId(),
         userId: session.id,
         slug,
-        displayName: parsed.data.displayName,
+        displayName: cleanName,
         headline: parsed.data.headline,
         bio: parsed.data.bio,
         niche: parsed.data.niche,
@@ -179,7 +123,12 @@ export async function addRateCardAction(raw: unknown) {
     return { ok: false as const, error: "Influencer role required." };
   }
   const parsed = rateCardSchema.safeParse(raw);
-  if (!parsed.success) return { ok: false as const, error: "Invalid rate card." };
+  if (!parsed.success) {
+    return {
+      ok: false as const,
+      error: parsed.error.issues[0]?.message ?? "Check the rate card fields.",
+    };
+  }
 
   const store = await readStore();
   const profile = store.influencerProfiles.find((p) => p.userId === session.id);
@@ -187,9 +136,7 @@ export async function addRateCardAction(raw: unknown) {
     return { ok: false as const, error: "Create your public profile first." };
   }
 
-  const now = nowIso();
-  const item: RateCardItem = {
-    id: newId(),
+  const card = {
     influencerProfileId: profile.id,
     title: parsed.data.title,
     description: parsed.data.description ?? "",
@@ -197,15 +144,78 @@ export async function addRateCardAction(raw: unknown) {
     platform: parsed.data.platform,
     priceCents: parsed.data.priceCents,
     active: parsed.data.active ?? true,
-    createdAt: now,
-    updatedAt: now,
   };
-
+  // The duplicate check runs inside the compare-and-swap save, so a conflict
+  // reruns it on the fresh document and two simultaneous adds make one card.
+  let result = { id: "", created: false };
   await updateStore((s) => {
-    s.rateCards.push(item);
+    result = addRateCardOnce(s, card, newId);
   });
   revalidatePath("/dashboard/influencer/rate-cards");
-  return { ok: true as const, id: item.id };
+  revalidatePath(`/influencers/${profile.slug}`);
+  return { ok: true as const, id: result.id };
+}
+
+export async function updateRateCardAction(id: string, raw: unknown) {
+  const session = await requireSession();
+  if (!session.roles.includes("influencer") && !session.roles.includes("admin")) {
+    return { ok: false as const, error: "Influencer role required." };
+  }
+  const parsed = rateCardSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      ok: false as const,
+      error: parsed.error.issues[0]?.message ?? "Check the rate card fields.",
+    };
+  }
+  const store = await readStore();
+  const profile = store.influencerProfiles.find((p) => p.userId === session.id);
+  if (!profile) return { ok: false as const, error: "Create your public profile first." };
+  const existing = store.rateCards.find((rate) => rate.id === id && rate.influencerProfileId === profile.id);
+  if (!existing) return { ok: false as const, error: "Rate not found." };
+
+  await updateStore((s) => {
+    const item = s.rateCards.find((rate) => rate.id === id && rate.influencerProfileId === profile.id);
+    if (!item) return;
+    item.title = parsed.data.title;
+    item.description = parsed.data.description ?? "";
+    item.type = parsed.data.type;
+    item.platform = parsed.data.platform;
+    item.priceCents = parsed.data.priceCents;
+    item.active = parsed.data.active ?? item.active;
+    item.updatedAt = nowIso();
+  });
+  revalidatePath("/dashboard/influencer/rate-cards");
+  revalidatePath(`/influencers/${profile.slug}`);
+  return { ok: true as const };
+}
+
+export async function deleteRateCardAction(id: string) {
+  const session = await requireSession();
+  if (!session.roles.includes("influencer") && !session.roles.includes("admin")) {
+    return { ok: false as const, error: "Influencer role required." };
+  }
+  const store = await readStore();
+  const profile = store.influencerProfiles.find((p) => p.userId === session.id);
+  if (!profile) return { ok: false as const, error: "Rate not found." };
+  const existing = store.rateCards.find((rate) => rate.id === id && rate.influencerProfileId === profile.id);
+  if (!existing) return { ok: false as const, error: "Rate not found." };
+  const inUse = store.bookings.some(
+    (booking) => booking.rateCardItemId === id && booking.status !== "cancelled",
+  );
+  if (inUse) {
+    return {
+      ok: false as const,
+      error: "A booking uses this rate, so it cannot be deleted. Edit the price instead.",
+    };
+  }
+
+  await updateStore((s) => {
+    s.rateCards = s.rateCards.filter((rate) => !(rate.id === id && rate.influencerProfileId === profile.id));
+  });
+  revalidatePath("/dashboard/influencer/rate-cards");
+  revalidatePath(`/influencers/${profile.slug}`);
+  return { ok: true as const };
 }
 
 export async function toggleRateCardAction(id: string, active: boolean) {
@@ -235,29 +245,3 @@ export async function listMyRateCards() {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export async function listPublicInfluencers(filters?: { q?: string; niche?: string }) {
-  await ensureDiscoverableCreators();
-  const store = await readStore();
-  return store.influencerProfiles
-    .filter((p) => p.published)
-    .filter((p) => (filters?.niche ? p.niche.toLowerCase().includes(filters.niche.toLowerCase()) : true))
-    .filter((p) =>
-      filters?.q
-        ? `${p.displayName} ${p.headline} ${p.niche} ${p.bio}`
-            .toLowerCase()
-            .includes(filters.q.toLowerCase())
-        : true,
-    )
-    .sort((a, b) => a.displayName.localeCompare(b.displayName));
-}
-
-export async function getPublicInfluencer(slug: string) {
-  await ensureDiscoverableCreators();
-  const store = await readStore();
-  const profile = store.influencerProfiles.find((p) => p.slug === slug && p.published);
-  if (!profile) return null;
-  const rates = store.rateCards.filter(
-    (r) => r.influencerProfileId === profile.id && r.active,
-  );
-  return { profile, rates };
-}
