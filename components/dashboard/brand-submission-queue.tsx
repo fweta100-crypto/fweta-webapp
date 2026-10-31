@@ -95,7 +95,7 @@ export function BrandSubmissionQueue({
 
   return (
     <div className="space-y-4">
-      <nav className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" aria-label="Clip status">
+      <nav className="flex flex-wrap gap-2" aria-label="Clip status">
         {STATUS_TABS.map((tab) => {
           const active = filters.status === tab.value;
           const count = countFor(tab.value);
@@ -104,7 +104,7 @@ export function BrandSubmissionQueue({
               key={tab.value}
               href={hrefWith(action, filters, tab.value, lockCampaignId)}
               className={cn(
-                "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm transition",
+                "inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-4 text-sm transition md:min-h-9",
                 active
                   ? "border-foreground bg-foreground text-white"
                   : "border-border bg-white text-muted hover:text-foreground",
@@ -212,7 +212,7 @@ export function BrandSubmissionQueue({
                           <p className="font-medium text-foreground">{creatorName}</p>
                           <StatusBadge status={s.status} />
                         </div>
-                        <p className="mt-0.5 truncate text-xs text-muted">
+                        <p className="mt-0.5 text-xs text-muted">
                           {campaign && !lockCampaignId ? `${campaign.title} · ` : ""}
                           {PLATFORM_LABEL[s.platform] ?? s.platform} ·{" "}
                           {formatDistanceToNow(new Date(s.createdAt), { addSuffix: true })}

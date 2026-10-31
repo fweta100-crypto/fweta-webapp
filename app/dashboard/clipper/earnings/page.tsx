@@ -53,17 +53,18 @@ export default async function ClipperEarningsPage() {
       />
       <ContextHelp
         title="Earnings follow a view check"
-        body="Approved clips earn after an admin records qualified views. The amount is the rate per 1,000 views, capped by the per-clip maximum and the budget still left."
+        body="Approved clips earn after an admin records qualified views. The amount is the rate per 1,000 views, capped by the per‑clip maximum and the budget still left."
         hint="A rejection does not earn. The note on the submission explains why."
       />
 
       <StatGrid>
-        <Stat label="Available" value={formatMoney(wallet.availableCents)} />
-        <Stat label="View earnings" value={formatMoney(income.viewCents)} />
-        <Stat label="UGC fees" value={formatMoney(income.ugcCents)} />
-        <Stat label="Verified views" value={formatNumber(views)} />
-        <Stat label="Approved clips" value={String(approved.length)} />
-        <Stat label="Set aside" value={formatMoney(setAside || wallet.pendingCents)} />
+        <Stat
+          label="Available"
+          value={formatMoney(wallet.availableCents)}
+          hint={`View earnings ${formatMoney(income.viewCents)} · UGC fees ${formatMoney(income.ugcCents)}`}
+        />
+        <Stat label="Set aside" value={formatMoney(setAside || wallet.pendingCents)} hint="Released when the hold ends" />
+        <Stat label="Verified views" value={formatNumber(views)} hint={`${approved.length} approved clips`} />
       </StatGrid>
 
       <section>
